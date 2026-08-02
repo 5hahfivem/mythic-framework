@@ -359,21 +359,28 @@ export default ({ refreshRoster, jobData, playerJob }) => {
 		try {
 			let res = await (
 				await Nui.send('TransferCompany', {
+					JobId: jobData.Id,
 					target: transfer.target,
 				})
 			).json();
 
 			if (res.success) {
-				sendAlert('Company Ownership Has Been Transfered');
+				sendAlert('Ownership Transfer Request Sent');
 				refreshRoster();
 			} else {
 				switch (res.code) {
 					case 'INVALID_PERMISSIONS':
 						sendAlert('Not Authorized');
 						break;
+					case 'INVALID_TARGET':
+						sendAlert('Invalid Transfer Target');
+						break;
+					case 'OUTSTANDING_OFFER':
+						sendAlert('There Is Already a Pending Transfer');
+						break;
 					default:
 					case 'ERROR':
-						sendAlert('Unable to Disband Company');
+						sendAlert('Unable to Transfer Company');
 						break;
 				}
 			}
@@ -804,7 +811,6 @@ export default ({ refreshRoster, jobData, playerJob }) => {
 									fullWidth
 									variant="contained"
 									className={classes.ownerBtn}
-									disabled
 									onClick={() => setTransfer({ target: '' })}
 								>
 									Transfer Company Ownership

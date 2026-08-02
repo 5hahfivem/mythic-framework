@@ -82,6 +82,30 @@ RegisterNetEvent("Phone:Client:CoManager:GetTransferRequest", function(time, dat
 	)
 end)
 
+RegisterNetEvent("Phone:Client:CoManager:GetXferResponse", function(time, state)
+	if state then
+		Phone.Notification:Add(
+			"Ownership Transfer Response",
+			"Your Ownership Transfer Was Accepted",
+			time * 1000,
+			6000,
+			"comanager",
+			{ view = "" },
+			nil
+		)
+	else
+		Phone.Notification:Add(
+			"Ownership Transfer Response",
+			"Your Ownership Transfer Was Declined",
+			time * 1000,
+			6000,
+			"comanager",
+			{ view = "" },
+			nil
+		)
+	end
+end)
+
 AddEventHandler("Phone:Client:CoManager:AcceptXfer", function()
 	Callbacks:ServerCallback("Phone:CoManager:AcceptXfer", {}, function(time, state)
 		if state then

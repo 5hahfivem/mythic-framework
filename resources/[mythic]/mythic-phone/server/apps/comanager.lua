@@ -817,101 +817,125 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		cb({ success = false, code = "ERROR" })
 	end)
 
-	-- TODO
-	-- Callbacks:RegisterServerCallback("Phone:CoManager:BeginTransfer", function(source, data, cb)
-	-- 	local plyr = Fetch:Source(source)
-	-- 	local char = plyr:GetData("Character")
-	-- 	local jobdata = GlobalState[string.format("JobTypes:%s", char:GetData("Job").Id)]
+	Callbacks:RegisterServerCallback("Phone:CoManager:TransferCompany", function(source, data, cb)
+		local stateId, jobId = math.tointeger(data.target), data.JobId
+		local player = Fetch:Source(source)
+		local char = player and player:GetData("Character")
 
-	-- 	if char:GetData("ID") == jobdata.Owner then
-	-- 		local target = Fetch:SID(tonumber(data.target))
-	-- 		if target ~= nil then
-	-- 			local tc = target:GetData("Character")
-	-- 			if tc ~= nil then
-	-- 				if tc:GetData("Job").Id == Config.DefaultJob.Id or tc:GetData("Job").Id == jobdata.Id then
-	-- 					if _pendingXfers[tc:GetData("ID")] == nil and _pendingXfers[jobdata.Id] then
-	-- 						_pendingXfers[tc:GetData("ID")] = {
-	-- 							job = job.Id,
-	-- 							sender = char:GetData("ID"),
-	-- 							target = tc:GetData("ID"),
-	-- 						}
-	-- 						_pendingXfers[job.Id] = true
-	-- 						Phone.Notification:AddWithId(
-	-- 							target:GetData("Source"),
-	-- 							"CO_XFER",
-	-- 							job.Name,
-	-- 							string.format(
-	-- 								"%s Wants To Transfer Ownership of %s",
-	-- 								string.format("%s %s", char:GetData("First"), char:GetData("Last")),
-	-- 								job.Name
-	-- 							),
-	-- 							os.time() * 1000,
-	-- 							-1,
-	-- 							"comanager",
-	-- 							{
-	-- 								accept = "Phone:Client:CoManager:AcceptXfer",
-	-- 								cancel = "Phone:Client:CoManager:DeclineXfer",
-	-- 							},
-	-- 							nil
-	-- 						)
-	-- 						cb({ error = false })
-	-- 					else
-	-- 						cb({ error = true, code = 5 })
-	-- 					end
-	-- 				else
-	-- 					cb({ error = true, code = 4 })
-	-- 				end
-	-- 			else
-	-- 				cb({ error = true, code = 3 })
-	-- 			end
-	-- 		else
-	-- 			cb({ error = true, code = 1 })
-	-- 		end
-	-- 	else
-	-- 		cb({ error = true, code = 2 })
-	-- 	end
-	-- end)
+		if char and stateId and jobId and not hasValue(_blacklistedJobs, jobId) then
+			if Jobs.Permissions:IsOwner(source, jobId) then
+				local job = Jobs:Get(jobId)
+				if job and job.Type == "Company" and stateId ~= char:GetData("SID") then
+					local targetChar = Fetch:CharacterData("SID", stateId)
+					if targetChar then
+						targetChar = targetChar:GetData("Character")
+					end
 
-	-- Callbacks:RegisterServerCallback("Phone:CoManager:AcceptXfer", function(source, data, cb)
-	-- 	local plyr = Fetch:Source(source)
-	-- 	local char = plyr:GetData("Character")
-	-- 	local xfer = _pendingXfers[char:GetData("ID")]
+					if targetChar then
+						-- The new owner has to either be unemployed or already
+						-- working at the company they're taking over
+						local targetCharJobs = targetChar:GetData("Jobs")
+						local isEligible = not targetCharJobs or #targetCharJobs == 0
 
-	-- 	if char:GetData("ID") == xfer.target then
-	-- 		if Business.Company:Transfer(char:GetData("Job").Id, char, tc) then
-	-- 			Phone:UpdateJobData(source)
-	-- 			Phone:UpdateJobData(target:GetData("Source"))
+						if not isEligible then
+							for k, v in ipairs(targetCharJobs) do
+								if v.Id == jobId then
+									isEligible = true
+									break
+								end
+							end
+						end
 
-	-- 			Phone.Notifications:RemoveById(source, "CO_XFER")
+						if isEligible then
+							local outstanding = _pendingXfers[stateId] or _pendingXfers[jobId]
 
-	-- 			cb({ error = false })
-	-- 		else
-	-- 			cb({ error = true, code = 4 })
-	-- 		end
-	-- 	else
-	-- 		cb({ error = true, code = 2 })
-	-- 	end
-	-- end)
+							if not outstanding or (os.time() - outstanding.time) >= 300 then
+								local time = os.time()
+								local xferData = {
+									time = time,
+									TransferredBy = source,
+									Job = {
+										Id = job.Id,
+										Name = job.Name,
+									},
+								}
 
-	-- Callbacks:RegisterServerCallback("Phone:CoManager:DeclineXfer", function(source, data, cb)
-	-- 	local plyr = Fetch:Source(source)
-	-- 	local char = plyr:GetData("Character")
-	-- 	local xfer = _pendingXfers[char:GetData("ID")]
+								-- Keyed by both so neither the target nor the company
+								-- can be caught up in a second transfer at once
+								_pendingXfers[stateId] = xferData
+								_pendingXfers[jobId] = xferData
 
-	-- 	if char:GetData("ID") == xfer.target then
-	-- 		local orig = Fetch:CharacterData("ID", xfer.sender)
-	-- 		if orig ~= nil then
-	-- 			TriggerClientEvent("Phone:Client:CoManager:GetXferResponse", orig:GetData("Source"), os.time(), false)
-	-- 		end
+								TriggerClientEvent(
+									"Phone:Client:CoManager:GetTransferRequest",
+									targetChar:GetData("Source"),
+									time,
+									{
+										Name = job.Name,
+										Sender = string.format("%s %s", char:GetData("First"), char:GetData("Last")),
+									}
+								)
+								return cb({ success = true })
+							end
 
-	-- 		_pendingXfers[xfer.job] = nil
-	-- 		_pendingXfers[char:GetData("ID")] = nil
+							return cb({ success = false, code = "OUTSTANDING_OFFER" })
+						end
+					end
 
-	-- 		cb(true)
-	-- 	else
-	-- 		cb(false)
-	-- 	end
-	-- end)
+					return cb({ success = false, code = "INVALID_TARGET" })
+				end
+
+				return cb({ success = false, code = "ERROR" })
+			end
+
+			return cb({ success = false, code = "INVALID_PERMISSIONS" })
+		end
+		return cb({ success = false, code = "ERROR" })
+	end)
+
+	Callbacks:RegisterServerCallback("Phone:CoManager:AcceptXfer", function(source, data, cb)
+		local player = Fetch:Source(source)
+		if player then
+			local char = player:GetData("Character")
+			if char then
+				local stateId = char:GetData("SID")
+				local xfer = _pendingXfers[stateId]
+				if xfer then
+					local success = Jobs.Management:Transfer(xfer.Job.Id, stateId)
+
+					TriggerClientEvent("Phone:Client:CoManager:GetXferResponse", xfer.TransferredBy, os.time(), success)
+
+					_pendingXfers[xfer.Job.Id] = nil
+					_pendingXfers[stateId] = nil
+
+					if success then
+						Phone:UpdateJobData(source)
+						Phone:UpdateJobData(xfer.TransferredBy)
+					end
+
+					return cb(os.time(), success)
+				end
+			end
+		end
+		return cb(os.time(), false)
+	end)
+
+	Callbacks:RegisterServerCallback("Phone:CoManager:DeclineXfer", function(source, data, cb)
+		local player = Fetch:Source(source)
+		if player then
+			local char = player:GetData("Character")
+			if char then
+				local stateId = char:GetData("SID")
+				local xfer = _pendingXfers[stateId]
+				if xfer then
+					TriggerClientEvent("Phone:Client:CoManager:GetXferResponse", xfer.TransferredBy, os.time(), false)
+
+					_pendingXfers[xfer.Job.Id] = nil
+					_pendingXfers[stateId] = nil
+				end
+			end
+		end
+		cb(os.time())
+	end)
 end)
 
 function FetchComanagerCharacters(jobIds, workplaceId, gradeId, excludeSIDs)
