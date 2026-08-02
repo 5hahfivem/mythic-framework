@@ -309,7 +309,7 @@ RegisterNetEvent("Casino:Client:BlackjackConfirmBet", function(betAmounts, table
     if res?.success and res?.data?.confirmBet and res.data.confirmBet >= 100 then
         Callbacks:ServerCallback("Casino:BetBlackjack", res.data.confirmBet, function(success, gameData)
             if success then
-                DoBlackjackPlaceBetAnimation()
+                DoBlackjackPlaceBetAnimation(res.data.confirmBet)
 
                 ShowGameStateUI(gameData)
 
@@ -558,15 +558,12 @@ function CountBlackjackHand(cards)
         end
     end
 
-    for i = 1, numberOfAces do 
-        if i == 1 then
-            if hand + 11 > 21 then
-                nextCard = 1
-            else
-                nextCard = 11
-            end
-        else
-            nextCard = 1
+    for i = 1, numberOfAces do
+        local nextCard = 1
+        -- Only the first ace can be worth 11, and only when every other ace
+        -- (worth 1 each) still fits underneath 21
+        if i == 1 and (hand + 11 + (numberOfAces - 1)) <= 21 then
+            nextCard = 11
         end
         hand = hand + nextCard
     end

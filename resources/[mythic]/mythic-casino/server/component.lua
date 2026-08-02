@@ -255,6 +255,11 @@ function GiveCasinoFuckingMoney(source, game, amount)
 	end
 
 	local f = Banking.Accounts:GetOrganization("casino-bets")
+	if not f then
+		Logger:Error("Casino", "Unable To Load Casino Bets Bank Account")
+		return
+	end
+
 	Banking.Balance:Deposit(f.Account, amount, {
 		type = "deposit",
 		title = game,

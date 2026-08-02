@@ -501,7 +501,7 @@ AddEventHandler("Casino:Server:Startup", function()
             return cb(false)
         end
 
-        if not data or type(data) ~= "number" or data < 100 then
+        if not data or type(data) ~= "number" or not IsValidBlackjackBet(blackjackPlayer.Table, data) then
             return cb(false)
         end
 
@@ -577,15 +577,12 @@ function GetCurrentBlackjackHand(tableId, chairId)
             end
         end
 
-        for i = 1, numberOfAces do 
-            if i == 1 then
-                if hand + 11 > 21 then
-                    nextCard = 1
-                else
-                    nextCard = 11
-                end
-            else
-                nextCard = 1
+        for i = 1, numberOfAces do
+            local nextCard = 1
+            -- Only the first ace can be worth 11, and only when every other ace
+            -- (worth 1 each) still fits underneath 21
+            if i == 1 and (hand + 11 + (numberOfAces - 1)) <= 21 then
+                nextCard = 11
             end
             hand = hand + nextCard
         end
@@ -606,6 +603,20 @@ function GetBlackjackTableReady(tableId)
     end
 
     return readyCount >= 4
+end
+
+function IsValidBlackjackBet(tableId, bet)
+    if not _blackjackTables[tableId] then
+        return false
+    end
+
+    for k, v in ipairs(_blackjackTables[tableId].bet) do
+        if v == bet then
+            return true
+        end
+    end
+
+    return false
 end
 
 function GetBlackjackTableId(chairId)

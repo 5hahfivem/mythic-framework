@@ -572,23 +572,22 @@ function getCardFromNumber(iParam0, bParam1)
 	return "vw_prop_casino_cards_single"
 end
 
-function getAnimNameFromBet(betAmount)
-    --TODO sort this out once bet amounts decided
-    -- return "place_bet_small";
-    -- return "place_bet_small_alt1";
-    -- return "place_bet_small_alt2";
-    -- return "place_bet_small_alt3";
-    -- return "place_bet_large";
-    -- return "place_bet_double_down";
-    -- return "place_bet_small_player_02";
-    -- return "place_bet_large_player_02";
-    -- return "place_bet_double_down_player_02";
-    -- return "place_bet_small_split";
-    -- return "place_bet_large_split";
+local smallBetAnims = {
+    "place_bet_small",
+    "place_bet_small_alt1",
+    "place_bet_small_alt2",
+    "place_bet_small_alt3",
+}
 
-    --default for now
-    return "place_bet_small"
-end 
+function getAnimNameFromBet(betAmount)
+    -- A bet of $1,000 or more is the first that gets pushed out as a stack of
+    -- chips rather than a handful, which is what the large variant animates
+    if betAmount >= 1000 then
+        return "place_bet_large"
+    end
+
+    return smallBetAnims[math.random(#smallBetAnims)]
+end
 
 
 function blackjack_func_377(iParam0, iParam1, bParam2) --iVar5, iVar9, 0
@@ -1607,9 +1606,9 @@ function DoBlackjackRequestCardAnimation()
     end)
 end 
 
-function DoBlackjackPlaceBetAnimation()
+function DoBlackjackPlaceBetAnimation(betAmount)
     shouldForceIdleCardGames = false
-    local duration = doStupidFuckingAnimation("anim_casino_b@amb@casino@games@blackjack@player", getAnimNameFromBet(100))
+    local duration = doStupidFuckingAnimation("anim_casino_b@amb@casino@games@blackjack@player", getAnimNameFromBet(betAmount))
 
     SetTimeout(duration, function()
         shouldForceIdleCardGames = true
