@@ -4,6 +4,7 @@ local _lastDamage = {
     source = 0,
     melee = false
 }
+local _gasDamageCooldown = {}
 
 AddEventHandler("Damage:Client:Triggers:EntityDamaged", function(victim, attacker, pWeapon, isMelee)
     if victim ~= PlayerPedId() then return end
@@ -19,6 +20,14 @@ AddEventHandler("Damage:Client:Triggers:EntityDamaged", function(victim, attacke
         melee = isMelee,
         bone = bone,
     }
+
+	-- gas damage cooldown
+    if Config.Weapons[pWeapon]?.gas then
+        if GetGameTimer() < (_gasDamageCooldown[pWeapon] or 0) then
+            return
+        end
+        _gasDamageCooldown[pWeapon] = GetGameTimer() + 1000
+    end
 
     TriggerServerEvent("Damage:Server:BoneDamage", _lastDamage)
 
