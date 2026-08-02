@@ -774,11 +774,7 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:CoManager:PurchaseUpgrade", function(source, data, cb)
-		-- Jobs.Management.Upgrades stores and reports what a company owns, but
-		-- there is no catalogue to sell from yet: nothing defines which upgrades
-		-- exist, what they cost, or what owning one does, and player companies
-		-- have no bank account to charge. The app renders an empty list until
-		-- one is defined, so this is only reachable by a crafted request
+		-- _upgrades only holds the Coming Soon! placeholder, nothing to sell yet
 		cb({ success = false, code = "NOT_IMPLEMENTED" })
 	end)
 
@@ -823,8 +819,7 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 			if Jobs.Permissions:IsOwner(source, jobId) then
 				local job = Jobs:Get(jobId)
 				if job and job.Type == "Company" then
-					-- Don't pull the company out from under a transfer someone
-					-- has already been asked to accept
+					-- Don't disband out from under a transfer waiting on an answer
 					if _pendingXfers[jobId] then
 						return cb({ success = false, code = "OUTSTANDING_OFFER" })
 					end
@@ -857,8 +852,7 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 					end
 
 					if targetChar then
-						-- The new owner has to either be unemployed or already
-						-- working at the company they're taking over
+						-- New owner has to be unemployed or already at the company
 						local targetCharJobs = targetChar:GetData("Jobs")
 						local isEligible = not targetCharJobs or #targetCharJobs == 0
 
@@ -885,8 +879,7 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 									},
 								}
 
-								-- Keyed by both so neither the target nor the company
-								-- can be caught up in a second transfer at once
+								-- Keyed by both so neither joins a second transfer at once
 								_pendingXfers[stateId] = xferData
 								_pendingXfers[jobId] = xferData
 

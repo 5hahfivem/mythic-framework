@@ -298,8 +298,7 @@ function StartBlackjackGame(tableId)
                             if pHand <= 21 then
 
                                 if isNatural or dealerBlackjack then
-                                    -- A natural beats any drawn 21 and only ever
-                                    -- pushes against the dealer holding one too
+                                    -- Natural Beats A Drawn 21, Pushes Only Against Another Natural
                                     if isNatural and dealerBlackjack then
                                         isWin = true
                                         isPush = true
@@ -340,7 +339,7 @@ function StartBlackjackGame(tableId)
 
                                 local wonAmount = v.Bet
                                 if isNatural and not isPush then
-                                    -- Naturals pay 3:2 on top of the stake
+                                    -- Naturals Pay 3:2 On Top Of The Stake
                                     wonAmount = math.floor(v.Bet * 2.5)
                                 elseif not isPush then
                                     wonAmount = v.Bet * 2
@@ -598,8 +597,7 @@ function GetCurrentBlackjackHand(tableId, chairId)
 
         for i = 1, numberOfAces do
             local nextCard = 1
-            -- Only the first ace can be worth 11, and only when every other ace
-            -- (worth 1 each) still fits underneath 21
+            -- Only The First Ace Can Be 11, The Rest Are Always 1
             if i == 1 and (hand + 11 + (numberOfAces - 1)) <= 21 then
                 nextCard = 11
             end

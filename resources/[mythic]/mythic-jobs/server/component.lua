@@ -619,8 +619,7 @@ _JOBS = {
 
 			RefreshAllJobData(jobId)
 
-			-- The new owner takes the owner grade, the previous owner is left employed
-			-- at the lowest grade rather than being dropped from the company
+			-- Demotes the previous owner instead of dropping them from the company
 			Jobs:GiveJob(newOwner, jobId, false, 'owner')
 
 			if previousOwner then
@@ -740,8 +739,7 @@ _JOBS = {
 				return false
 			end
 
-			-- RefreshAllJobData only ever adds to the cache, so the job being
-			-- deleted and its permission keys have to be cleared by hand
+			-- RefreshAllJobData only ever adds, so clear the removed job by hand
 			for k, v in ipairs(GetJobGrades(job, false) or {}) do
 				GlobalState[string.format('JobPerms:%s:false:%s', jobId, v.Id)] = nil
 			end

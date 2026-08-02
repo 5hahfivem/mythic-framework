@@ -560,8 +560,7 @@ function CountBlackjackHand(cards)
 
     for i = 1, numberOfAces do
         local nextCard = 1
-        -- Only the first ace can be worth 11, and only when every other ace
-        -- (worth 1 each) still fits underneath 21
+        -- Only The First Ace Can Be 11, The Rest Are Always 1
         if i == 1 and (hand + 11 + (numberOfAces - 1)) <= 21 then
             nextCard = 11
         end

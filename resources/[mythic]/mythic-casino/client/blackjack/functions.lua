@@ -580,8 +580,7 @@ local smallBetAnims = {
 }
 
 function getAnimNameFromBet(betAmount)
-    -- A bet of $1,000 or more is the first that gets pushed out as a stack of
-    -- chips rather than a handful, which is what the large variant animates
+    --$1000 up is a stack of chips rather than a handful, hence the large variant
     if betAmount >= 1000 then
         return "place_bet_large"
     end
