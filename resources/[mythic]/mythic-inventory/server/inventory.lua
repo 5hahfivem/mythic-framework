@@ -173,8 +173,12 @@ AddEventHandler("Core:Shared:Ready", function()
 		RegisterTestBench()
 		RegisterCraftingCallbacks()
 
-        local f = Banking.Accounts:GetOrganization("government")
-        _govAccount = f.Account
+        local f = WaitForOrganizationAccount("government")
+        if f then
+            _govAccount = f.Account
+        else
+            Logger:Error("Inventory", "Unable To Load Government Bank Account")
+        end
 
 		Middleware:Add("Characters:Spawning", function(source)
 			TriggerClientEvent("Inventory:Client:PolySetup", source, _polyInvs)
@@ -2423,4 +2427,17 @@ function UpdateCharacterGangChain(source, inventory)
 	if myGangChain ~= nil and not Utils:DoesTableHaveValue(gangChains, myGangChain) then
 		char:SetData("GangChain", "NONE")
 	end
+end
+
+function WaitForOrganizationAccount(jobId)
+    local account = Banking.Accounts:GetOrganization(jobId)
+    local attempts = 0
+
+    while not account and attempts < 20 do
+        Wait(500)
+        attempts = attempts + 1
+        account = Banking.Accounts:GetOrganization(jobId)
+    end
+
+    return account
 end

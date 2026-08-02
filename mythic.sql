@@ -531,6 +531,7 @@ DROP TABLE IF EXISTS `mdt_charges`;
 CREATE TABLE IF NOT EXISTS `mdt_charges` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `charge` longtext NOT NULL,
+  `default` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 

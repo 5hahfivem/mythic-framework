@@ -13,7 +13,6 @@ end
 
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Escort", {
-		"Database",
 		"Logger",
 		"Callbacks",
 		"Middleware",

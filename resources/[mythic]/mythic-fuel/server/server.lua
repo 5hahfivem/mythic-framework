@@ -53,8 +53,12 @@ AddEventHandler('Core:Shared:Ready', function()
         end
 
         Wait(2000)
-        local f = Banking.Accounts:GetOrganization("dgang")
-        bankAcc = f.Account
+        local f = WaitForOrganizationAccount("dgang")
+        if f then
+            bankAcc = f.Account
+        else
+            Logger:Error("Fuel", "Unable To Load DGang Bank Account")
+        end
     end)
 end)
 
@@ -103,4 +107,17 @@ function RegisterCallbacks()
         local totalCost = CalculateFuelCost(0, math.floor(100 - (data.pct * 100)))
         cb(totalCost and Wallet:Modify(source, -math.abs(totalCost), true))
     end)
+end
+
+function WaitForOrganizationAccount(jobId)
+    local account = Banking.Accounts:GetOrganization(jobId)
+    local attempts = 0
+
+    while not account and attempts < 20 do
+        Wait(500)
+        attempts = attempts + 1
+        account = Banking.Accounts:GetOrganization(jobId)
+    end
+
+    return account
 end
