@@ -20,7 +20,7 @@ _MDT.Reports = {
         end
 
         local search = string.format('%%%s%%', term)
-        table.insert(clauses, '(title LIKE ? OR suspectNames LIKE ? OR CAST(ID AS CHAR) LIKE ?)')
+        table.insert(clauses, '(title LIKE ? OR suspectNames LIKE ? OR CAST(reportId AS CHAR) LIKE ?)')
         table.insert(params, search)
         table.insert(params, search)
         table.insert(params, search)
@@ -192,7 +192,7 @@ function StoreMdtReport(id, report)
 
 	if id == nil then
 		return MySQL.insert.await(
-			'INSERT INTO mdt_reports (ID, type, title, time, authorSID, suspectNames, report) VALUES(?, ?, ?, ?, ?, ?, ?)',
+			'INSERT INTO mdt_reports (reportId, type, title, time, authorSID, suspectNames, report) VALUES(?, ?, ?, ?, ?, ?, ?)',
 			{
 				report.ID,
 				report.type,

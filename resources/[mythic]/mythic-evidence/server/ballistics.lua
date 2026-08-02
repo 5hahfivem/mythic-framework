@@ -161,7 +161,7 @@ function GetFirearmsRecord(serialNumber, scratched, filedOnly)
 end
 
 function GetEvidenceProjectileRecord(evidenceId)
-	local result = MySQL.single.await('SELECT projectile FROM firearms_projectiles WHERE Id = ?', { evidenceId })
+	local result = MySQL.single.await('SELECT projectile FROM firearms_projectiles WHERE evidenceId = ?', { evidenceId })
 
 	if result == nil then
 		return false
@@ -172,7 +172,7 @@ end
 
 function CreateEvidenceProjectileRecord(document)
 	local inserted = MySQL.insert.await(
-		'INSERT INTO firearms_projectiles (Id, WeaponSerial, projectile) VALUES(?, ?, ?)',
+		'INSERT INTO firearms_projectiles (evidenceId, WeaponSerial, projectile) VALUES(?, ?, ?)',
 		{
 			document.Id,
 			document.Weapon?.serial,
@@ -188,11 +188,11 @@ function CreateEvidenceProjectileRecord(document)
 end
 
 function GetMatchingEvidenceProjectiles(weaponSerial)
-	local results = MySQL.query.await('SELECT Id FROM firearms_projectiles WHERE WeaponSerial = ?', { weaponSerial })
+	local results = MySQL.query.await('SELECT evidenceId FROM firearms_projectiles WHERE WeaponSerial = ?', { weaponSerial })
 
 	local foundEvidence = {}
 	for k, v in ipairs(results) do
-		table.insert(foundEvidence, v.Id)
+		table.insert(foundEvidence, v.evidenceId)
 	end
 
 	return foundEvidence

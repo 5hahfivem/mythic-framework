@@ -18,7 +18,7 @@ function DecodeBankAccount(row)
         return false
     end
 
-    local account = json.decode(row.account)
+    local account = json.decode(row.data)
     account._id = row.id
     account.Account = row.Account
     account.Balance = row.Balance
@@ -38,7 +38,7 @@ function BuildAccountQuery(query)
             for k2, condition in ipairs(v) do
                 for k3, val in pairs(condition) do
                     if k3 == 'JointOwners' then
-                        table.insert(ors, "JSON_CONTAINS(JSON_EXTRACT(account, '$.JointOwners'), CAST(? AS JSON))")
+                        table.insert(ors, "JSON_CONTAINS(JSON_EXTRACT(`data`, '$.JointOwners'), CAST(? AS JSON))")
                         table.insert(params, json.encode(val))
                     else
                         table.insert(ors, string.format('`%s` = ?', k3))
@@ -101,7 +101,7 @@ function CreateBankAccount(document)
     end
 
     local insertedId = MySQL.insert.await(
-        'INSERT INTO bank_accounts (Account, Type, Owner, Name, Balance, account) VALUES(?, ?, ?, ?, ?, ?)',
+        'INSERT INTO bank_accounts (Account, Type, Owner, Name, Balance, `data`) VALUES(?, ?, ?, ?, ?, ?)',
         {
             document.Account,
             document.Type,
@@ -134,11 +134,11 @@ function UpdateBankAccount(searchQuery, updateQuery)
                 table.insert(clauses, string.format('`%s` = ?', k))
                 table.insert(setParams, v)
             elseif op == '$set' then
-                table.insert(clauses, "account = JSON_SET(account, ?, CAST(? AS JSON))")
+                table.insert(clauses, "`data` = JSON_SET(`data`, ?, CAST(? AS JSON))")
                 table.insert(setParams, string.format('$."%s"', k))
                 table.insert(setParams, json.encode(v))
             elseif op == '$push' then
-                table.insert(clauses, "account = JSON_ARRAY_APPEND(COALESCE(account, '{}'), ?, CAST(? AS JSON))")
+                table.insert(clauses, "`data` = JSON_ARRAY_APPEND(COALESCE(`data`, '{}'), ?, CAST(? AS JSON))")
                 table.insert(setParams, string.format('$."%s"', k))
                 table.insert(setParams, json.encode(v))
             end

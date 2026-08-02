@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS `bank_accounts` (
   `Owner` varchar(64) DEFAULT NULL,
   `Name` varchar(128) NOT NULL DEFAULT '',
   `Balance` bigint(20) NOT NULL DEFAULT 0,
-  `account` longtext NOT NULL,
+  `data` longtext NOT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `Account` (`Account`) USING BTREE,
   KEY `owner` (`Type`, `Owner`) USING BTREE
@@ -369,11 +369,11 @@ CREATE TABLE IF NOT EXISTS `firearms` (
 DROP TABLE IF EXISTS `firearms_projectiles`;
 CREATE TABLE IF NOT EXISTS `firearms_projectiles` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `Id` varchar(64) NOT NULL,
+  `evidenceId` varchar(64) NOT NULL,
   `WeaponSerial` varchar(64) DEFAULT NULL,
   `projectile` longtext NOT NULL,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `EvidenceId` (`Id`) USING BTREE,
+  UNIQUE KEY `evidenceId` (`evidenceId`) USING BTREE,
   KEY `WeaponSerial` (`WeaponSerial`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
@@ -444,12 +444,12 @@ CREATE TABLE IF NOT EXISTS `irc_messages` (
 DROP TABLE IF EXISTS `jobs`;
 CREATE TABLE IF NOT EXISTS `jobs` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `Id` varchar(64) NOT NULL,
+  `jobId` varchar(64) NOT NULL,
   `Type` varchar(32) NOT NULL DEFAULT '',
   `Name` varchar(128) NOT NULL DEFAULT '',
   `job` longtext NOT NULL,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `JobId` (`Id`) USING BTREE,
+  UNIQUE KEY `jobId` (`jobId`) USING BTREE,
   KEY `Type` (`Type`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
@@ -560,7 +560,7 @@ CREATE TABLE IF NOT EXISTS `mdt_notices` (
 DROP TABLE IF EXISTS `mdt_reports`;
 CREATE TABLE IF NOT EXISTS `mdt_reports` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `ID` int(11) NOT NULL,
+  `reportId` int(11) NOT NULL,
   `type` varchar(64) DEFAULT NULL,
   `title` varchar(255) NOT NULL DEFAULT '',
   `time` bigint(20) NOT NULL DEFAULT 0,
@@ -568,7 +568,7 @@ CREATE TABLE IF NOT EXISTS `mdt_reports` (
   `suspectNames` varchar(512) DEFAULT NULL,
   `report` longtext NOT NULL,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `ReportID` (`ID`) USING BTREE,
+  UNIQUE KEY `reportId` (`reportId`) USING BTREE,
   KEY `time` (`time`) USING BTREE,
   KEY `authorSID` (`authorSID`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;

@@ -153,7 +153,7 @@ function RunStartup()
 end
 
 function InsertJob(document)
-	return MySQL.insert.await('INSERT INTO jobs (Id, Type, Name, job) VALUES(?, ?, ?, ?)', {
+	return MySQL.insert.await('INSERT INTO jobs (jobId, Type, Name, job) VALUES(?, ?, ?, ?)', {
 		document.Id,
 		document.Type,
 		document.Name,
@@ -162,7 +162,7 @@ function InsertJob(document)
 end
 
 function StoreJob(job)
-	return MySQL.query.await('UPDATE jobs SET Type = ?, Name = ?, job = ? WHERE Id = ?', {
+	return MySQL.query.await('UPDATE jobs SET Type = ?, Name = ?, job = ? WHERE jobId = ?', {
 		job.Type,
 		job.Name,
 		json.encode(job),
@@ -171,7 +171,7 @@ function StoreJob(job)
 end
 
 function FetchJob(jobId)
-	local row = MySQL.single.await('SELECT * FROM jobs WHERE Id = ?', { jobId })
+	local row = MySQL.single.await('SELECT * FROM jobs WHERE jobId = ?', { jobId })
 
 	if row == nil then
 		return false

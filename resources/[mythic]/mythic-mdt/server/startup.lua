@@ -162,7 +162,7 @@ function ApplyCharacterLicenseUpdate(SID, licenseUpdate)
 end
 
 function SentenceReportSuspect(reportId, suspectSID, sentence)
-	local row = MySQL.single.await('SELECT * FROM mdt_reports WHERE ID = ?', { reportId })
+	local row = MySQL.single.await('SELECT * FROM mdt_reports WHERE reportId = ?', { reportId })
 
 	if row == nil then
 		return false
