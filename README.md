@@ -16,19 +16,17 @@
 ## Get Started
 - [mythic-framework](https://github.com/Mythic-Framework/mythic-framework) - Get started with the official repository!
 
-## Project Maintainers
-- Treyyyy - Community Owner
-- Tyh - Community Owner
-- Van Man (DrBooly) - Community Owner
-- akaLucifer - Maintainer
-
 ## Credits
-- Alzar & Dr Nick - Original Maintainers and Creators
+- **Alzar & Dr Nick** - Original creators and maintainers of Mythic Framework
+- **Tyh, Autlaaw, Van Man (DrBooly), akaLucifer** - Maintainers of the previous community release
+- Everyone who contributed to the framework before this fork - thank you
 
 ## Information
 
 # 🚧DISCLAIMER🚧
-We do not own this framework, and we am simply trying to give it the support it deserves. The framework was originally built by Alzar & Dr Nick. Alzar has taken the liberty of releasing the framework and allowing Treyyyy (Vegeta) and team To Maintain it. You can find Alzars orignal repo here [original repository](https://github.com/Alzar/mythic-framework) 
+We do not own this framework. It was originally built by **Alzar & Dr Nick**, who released it to the community, after which it was maintained as a community project.
+
+That community repository has since been closed and is no longer maintained. This repository is the continuation of that work - we believe the framework is worth keeping alive, so we picked it up rather than let it disappear. All original credit stays with Alzar, Dr Nick, and everyone who contributed along the way.
 
 # Requirements 
 | Packages          | Link                                                                |
