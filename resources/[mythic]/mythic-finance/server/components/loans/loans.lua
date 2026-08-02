@@ -115,9 +115,10 @@ function CreateLoanTasks()
                 WHERE Remaining > 0 AND Defaulted = 0
                     AND ((NextPayment > 0 AND NextPayment <= ?) OR MissedPayments > 0)]],
             { (TASK_RUN_TIMESTAMP + (60 * 60 * 6)) }
-        }, function(success, results)
-            print("this might hitch the server (loan_reminder task)")
-            if success and #results > 0 then
+        )
+
+        print("this might hitch the server (loan_reminder task)")
+        if #results > 0 then
                 for k, v in ipairs(results) do
                     if v.SID then
                         local onlineChar = Fetch:SID(v.SID)
@@ -128,8 +129,7 @@ function CreateLoanTasks()
                         Wait(100)
                     end
                 end
-            end
-        end)
+        end
     end)
 end
 

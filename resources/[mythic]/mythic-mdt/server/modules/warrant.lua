@@ -25,11 +25,11 @@ _MDT.Warrants = {
 			TriggerClientEvent("MDT:Client:AddData", user, "warrants", data)
 		end
 		p:resolve(true)
-	end
-	GlobalState["MDT:Metric:Warrants"] = GlobalState["MDT:Metric:Warrants"] + 1
-	return Citizen.Await(p)
-end,
-Update = function(self, id, state, updater)
+
+		GlobalState["MDT:Metric:Warrants"] = GlobalState["MDT:Metric:Warrants"] + 1
+		return Citizen.Await(p)
+	end,
+	Update = function(self, id, state, updater)
 	local p = promise.new()
 	local warrant = MDT.Warrants:View(id)
 
@@ -94,9 +94,10 @@ end,
 }
 
 AddEventHandler("MDT:Server:RegisterCallbacks", function()
-Callbacks:RegisterServerCallback("MDT:Search:warrant", function(source, data, cb)
-	local char = Fetch:Source(source):GetData("Character")
-	cb(MDT.Warrants:Search(data.term))
+	Callbacks:RegisterServerCallback("MDT:Search:warrant", function(source, data, cb)
+		local char = Fetch:Source(source):GetData("Character")
+		cb(MDT.Warrants:Search(data.term))
+	end)
 
 	Callbacks:RegisterServerCallback("MDT:View:warrant", function(source, data, cb)
 		if CheckMDTPermissions(source, false) then

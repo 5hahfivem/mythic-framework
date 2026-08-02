@@ -138,7 +138,7 @@ _JOBS = {
 				else
 					p:resolve(false)
 				end
-			end)
+			end
 
 			local res = Citizen.Await(p)
 			return res
@@ -210,7 +210,7 @@ _JOBS = {
 				else
 					p:resolve(false)
 				end
-			end)
+			end
 
 			local res = Citizen.Await(p)
 			return res
@@ -652,7 +652,7 @@ _JOBS = {
 					else
 						p:resolve(false)
 					end
-				end)
+				end
 
 				local res = Citizen.Await(p)
 				return {
@@ -754,19 +754,8 @@ _JOBS = {
 			Edit = function(self, jobId, workplaceId, gradeId, settingData)
 				if Jobs:DoesExist(jobId, workplaceId, gradeId) then
 					local p = promise.new()
-					local query = {}
-					local update = {}
-					local options = {}
 
-					if workplaceId then
-						query = {
-							Type = 'Government',
-							Id = jobId,
-							['Workplaces.Id'] = workplaceId,
-							["Workplaces.Grades.Id"] = gradeId,
-						}
-
-						local job = FetchJob(jobId)
+					local job = FetchJob(jobId)
 					local grades = job and GetJobGrades(job, workplaceId)
 					local grade = grades and FindById(grades, gradeId)
 
@@ -799,6 +788,7 @@ _JOBS = {
 					}
 				end
 			end,
+
 			Delete = function(self, jobId, workplaceId, gradeId)
 				local peopleWithJobGrade = Jobs.Management.Employees:GetAll(jobId, workplaceId, gradeId)
 				if #peopleWithJobGrade <= 0 then
@@ -873,50 +863,26 @@ _JOBS = {
 
 				local p = promise.new()
 
-				local query = {
-					SID = {
-						['$nin'] = onlineCharacters,
-					},
-					Jobs = {
-						['$elemMatch'] = {
-							Id = jobId
-						}
-					}
-				}
-
-				if workplaceId then
-					query.Jobs['$elemMatch']['Workplace.Id'] = workplaceId
-				end
-
-				if gradeId then
-					query.Jobs['$elemMatch']['Grade.Id'] = gradeId
-				end
-
 				local results = FetchCharactersWithJob(jobId)
 
-				do
-					do
-						for _, c in ipairs(results) do
-							if c.Jobs and #c.Jobs > 0 then
-								for k, v in ipairs(c.Jobs) do
-									if v.Id == jobId and (not workplaceId or (workplaceId and (v.Workplace and v.Workplace.Id == workplaceId))) and (not gradeId or (v.Grade.Id == gradeId)) then
-										table.insert(jobCharacters, {
-											Source = false,
-											SID = c.SID,
-											First = c.First,
-											Last = c.Last,
-											Phone = c.Phone,
-											JobData = v,
-										})
-									end
-								end
+				for _, c in ipairs(results) do
+					if c.Jobs and #c.Jobs > 0 then
+						for k, v in ipairs(c.Jobs) do
+							if v.Id == jobId and (not workplaceId or (workplaceId and (v.Workplace and v.Workplace.Id == workplaceId))) and (not gradeId or (v.Grade.Id == gradeId)) then
+								table.insert(jobCharacters, {
+									Source = false,
+									SID = c.SID,
+									First = c.First,
+									Last = c.Last,
+									Phone = c.Phone,
+									JobData = v,
+								})
 							end
 						end
-						p:resolve(true)
-					else
-						p:resolve(false)
 					end
-				end)
+				end
+
+				p:resolve(true)
 
 				local res = Citizen.Await(p)
 				if res then

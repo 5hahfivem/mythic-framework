@@ -305,27 +305,24 @@ PHONE.CoManager = {
 
 		local results = FetchComanagerCharacters(Utils:GetTableKeys(fetchingJobs), workplaceId, gradeId)
 
-		do
-			for _, c in ipairs(results) do
-				if c.Jobs and #c.Jobs > 0 then
-					for k, v in ipairs(c.Jobs) do
-						if fetchingJobs[v.Id] then
-							table.insert(fetchedRosterData[v.Id], {
-								Source = false,
-								SID = c.SID,
-								First = c.First,
-								Last = c.Last,
-								Phone = c.Phone,
-								JobData = v,
-							})
-						end
+		for _, c in ipairs(results) do
+			if c.Jobs and #c.Jobs > 0 then
+				for k, v in ipairs(c.Jobs) do
+					if fetchingJobs[v.Id] then
+						table.insert(fetchedRosterData[v.Id], {
+							Source = false,
+							SID = c.SID,
+							First = c.First,
+							Last = c.Last,
+							Phone = c.Phone,
+							JobData = v,
+						})
 					end
 				end
 			end
-			p:resolve(true)
-		else
-			p:resolve(false)
 		end
+
+		p:resolve(true)
 
 		local res = Citizen.Await(p)
 		if res then
@@ -367,22 +364,19 @@ PHONE.CoManager = {
 
 			local results = FetchComanagerCharacters({ jobId }, nil, nil, onlineCharacters)
 
-			do
-				for _, c in ipairs(results) do
-					table.insert(onlineShit, {
-						Source = false,
-						SID = c.SID,
-						First = c.First,
-						Last = c.Last,
-						Phone = c.Phone,
-						LastClockOn = c.LastClockOn,
-						TimeClockedOn = c.TimeClockedOn,
-					})
-				end
-				p:resolve(true)
-			else
-				p:resolve(false)
+			for _, c in ipairs(results) do
+				table.insert(onlineShit, {
+					Source = false,
+					SID = c.SID,
+					First = c.First,
+					Last = c.Last,
+					Phone = c.Phone,
+					LastClockOn = c.LastClockOn,
+					TimeClockedOn = c.TimeClockedOn,
+				})
 			end
+
+			p:resolve(true)
 
 			local res = Citizen.Await(p)
 			if res then

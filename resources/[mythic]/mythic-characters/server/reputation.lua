@@ -77,10 +77,10 @@ _REP = {
                     end
 
 					local repNext = {
-						level = repCurrent.level += 1
+						level = repCurrent.level + 1
 					}
 
-					local nextRepLevel = repCurrent.level += 1
+					local nextRepLevel = repCurrent.level + 1
 					local nextRepLevelLabel = nil
 					if repData.levels[nextRepLevel] then
 						repNext.value = repData.levels[nextRepLevel].value
@@ -133,10 +133,10 @@ _REP = {
                     end
 
 					local repNext = {
-						level = repCurrent.level += 1
+						level = repCurrent.level + 1
 					}
 
-					local nextRepLevel = repCurrent.level += 1
+					local nextRepLevel = repCurrent.level + 1
 					local nextRepLevelLabel = nil
 					if repData.levels[nextRepLevel] then
 						repNext.value = repData.levels[nextRepLevel].value

@@ -96,10 +96,9 @@ end)
 function ReloadRaceTracks()
 	local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks", {}), "track")
 
-		_tracks = tracks
-		TriggerClientEvent("Phone:Client:Redline:StoreTracks", -1, _tracks)
-		TriggerClientEvent("Phone:Client:SetData", -1, "tracks", _tracks)
-	end)
+	_tracks = tracks
+	TriggerClientEvent("Phone:Client:Redline:StoreTracks", -1, _tracks)
+	TriggerClientEvent("Phone:Client:SetData", -1, "tracks", _tracks)
 end
 
 function LeaveAnyRace(source)
@@ -337,6 +336,7 @@ RegisterServerEvent("Phone:Redline:FinishRace", function(nId, data, laps, plate,
 		CreateThread(function()
 			Wait(tonumber(_races[tonumber(data)].dnf_time) * 1000)
 			FinishRace(tonumber(data))
+		end)
 	end
 end)
 

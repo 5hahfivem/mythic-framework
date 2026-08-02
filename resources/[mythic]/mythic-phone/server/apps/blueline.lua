@@ -52,10 +52,9 @@ end)
 function ReloadRaceTracksPD()
 	local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks_pd", {}), "track")
 
-		_tracks = tracks
-		TriggerClientEvent("Phone:Client:Blueline:StoreTracks", -1, _tracks)
-		TriggerClientEvent("Phone:Client:SetData", -1, "tracks_pd", _tracks)
-	end)
+	_tracks = tracks
+	TriggerClientEvent("Phone:Client:Blueline:StoreTracks", -1, _tracks)
+	TriggerClientEvent("Phone:Client:SetData", -1, "tracks_pd", _tracks)
 end
 
 function LeaveAnyRacePD(source)
@@ -223,6 +222,7 @@ RegisterServerEvent("Phone:Blueline:FinishRace", function(nId, data, laps, plate
 		CreateThread(function()
 			Wait(tonumber(_races[tonumber(data)].dnf_time) * 1000)
 			FinishRacePD(tonumber(data))
+		end)
 	end
 end)
 
