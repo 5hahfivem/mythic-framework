@@ -78,7 +78,11 @@ export default ({ jobData, playerJob }) => {
 				) : (
 					upgrades.map((upgrade, k) => {
 						return (
-							<Upgrade key={`upgrade-${k}`} upgrade={upgrade} />
+							<Upgrade
+								key={`upgrade-${k}`}
+								upgrade={upgrade}
+								jobData={jobData}
+							/>
 						);
 					})
 				)}

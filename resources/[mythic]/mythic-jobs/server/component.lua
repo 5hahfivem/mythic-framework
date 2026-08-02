@@ -188,6 +188,7 @@ _JOBS = {
 				if charData then
 					local charJobData = charData.Jobs
 					if charJobData then
+						local found = false
 						for k, v in ipairs(charJobData) do
 							if v.Id == jobId then
 								found = true
@@ -643,22 +644,114 @@ _JOBS = {
 			return true
 		end,
 		Upgrades = {
-			-- TODO
 			Has = function(self, jobId, upgradeKey)
-
+				local job = Jobs:Get(jobId)
+				return (job and job.Upgrades and job.Upgrades[upgradeKey]) == true
 			end,
 			Unlock = function(self, jobId, upgradeKey)
+				if not upgradeKey then
+					return false
+				end
 
+				local job = FetchJob(jobId)
+				if not job or (job.Upgrades and job.Upgrades[upgradeKey]) then
+					return false
+				end
+
+				job.Upgrades = job.Upgrades or {}
+				job.Upgrades[upgradeKey] = true
+
+				if not StoreJob(job) then
+					return false
+				end
+
+				RefreshAllJobData(jobId)
+				Middleware:TriggerEvent('Business:Upgrade', jobId, upgradeKey, true)
+
+				return true
 			end,
 			Lock = function(self, jobId, upgradeKey)
+				if not upgradeKey then
+					return false
+				end
 
+				local job = FetchJob(jobId)
+				if not job or not job.Upgrades or not job.Upgrades[upgradeKey] then
+					return false
+				end
+
+				job.Upgrades[upgradeKey] = nil
+
+				if not StoreJob(job) then
+					return false
+				end
+
+				RefreshAllJobData(jobId)
+				Middleware:TriggerEvent('Business:Upgrade', jobId, upgradeKey, false)
+
+				return true
 			end,
 			Reset = function(self, jobId)
+				local job = FetchJob(jobId)
+				if not job then
+					return false
+				end
 
+				job.Upgrades = {}
+
+				if not StoreJob(job) then
+					return false
+				end
+
+				RefreshAllJobData(jobId)
+				Middleware:TriggerEvent('Business:Upgrade', jobId, false, false)
+
+				return true
 			end,
 		},
 		Delete = function(self, jobId)
-			-- TODO
+			local job = FetchJob(jobId)
+			if not job or job.Type ~= 'Company' then
+				return false
+			end
+
+			local onlineCharacters = {}
+			for k, v in pairs(Fetch:All()) do
+				local char = v:GetData('Character')
+				if char then
+					local stateId = char:GetData('SID')
+					table.insert(onlineCharacters, stateId)
+
+					local charJobs = char:GetData('Jobs')
+					if charJobs and #charJobs > 0 then
+						for k2, v2 in ipairs(charJobs) do
+							if v2.Id == jobId then
+								Jobs:RemoveJob(stateId, jobId)
+								break
+							end
+						end
+					end
+				end
+			end
+
+			RemoveOfflineCharacterJobs(jobId, onlineCharacters)
+
+			if not DeleteJob(jobId) then
+				return false
+			end
+
+			-- RefreshAllJobData only ever adds to the cache, so the job being
+			-- deleted and its permission keys have to be cleared by hand
+			for k, v in ipairs(GetJobGrades(job, false) or {}) do
+				GlobalState[string.format('JobPerms:%s:false:%s', jobId, v.Id)] = nil
+			end
+
+			JOB_CACHE[jobId] = nil
+			RefreshAllJobData(jobId)
+
+			Middleware:TriggerEvent('Business:Delete', jobId, job.Owner)
+
+			return true
 		end,
 		Edit = function(self, jobId, settingData)
 			if Jobs:DoesExist(jobId) then

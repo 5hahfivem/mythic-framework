@@ -297,7 +297,10 @@ export default ({ refreshRoster, jobData, playerJob }) => {
 		setLoading(true);
 		try {
 			let res = await (
-				await Nui.send('RenameCompany', e.target.name.value)
+				await Nui.send('RenameCompany', {
+					JobId: jobData.Id,
+					NewName: e.target.name.value,
+				})
 			).json();
 
 			if (res.success) {
@@ -327,7 +330,11 @@ export default ({ refreshRoster, jobData, playerJob }) => {
 
 		setLoading(true);
 		try {
-			let res = await (await Nui.send('DisbandCompany')).json();
+			let res = await (
+				await Nui.send('DisbandCompany', {
+					JobId: jobData.Id,
+				})
+			).json();
 
 			if (res.success) {
 				sendAlert('Company Has Been Deleted');
@@ -336,6 +343,9 @@ export default ({ refreshRoster, jobData, playerJob }) => {
 				switch (res.code) {
 					case 'INVALID_PERMISSIONS':
 						sendAlert('Not Authorized');
+						break;
+					case 'OUTSTANDING_OFFER':
+						sendAlert('There Is Already a Pending Transfer');
 						break;
 					default:
 					case 'ERROR':
@@ -802,7 +812,6 @@ export default ({ refreshRoster, jobData, playerJob }) => {
 									fullWidth
 									variant="contained"
 									className={classes.ownerBtn}
-									disabled
 									onClick={() => setDisband(true)}
 								>
 									Disband Company

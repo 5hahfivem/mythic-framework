@@ -25,11 +25,11 @@ const useStyles = makeStyles((theme) => ({
 	},
 }));
 
-export default ({ upgrade }) => {
+export default ({ upgrade, jobData }) => {
 	const classes = useStyles();
 	const sendAlert = useAlert();
 	const hasUpgrade = useCompanyUpgrades();
-	const isOwned = hasUpgrade(upgrade.value);
+	const isOwned = hasUpgrade(jobData?.Id, upgrade.value);
 
 	const [buying, setBuying] = useState(false);
 
@@ -37,20 +37,19 @@ export default ({ upgrade }) => {
 		try {
 			let res = await (await Nui.send('PurchaseUpgrade', upgrade)).json();
 
-			if (!res.error) {
+			if (res.success) {
+				sendAlert(`${upgrade.label} Purchased`);
 			} else {
 				switch (res.code) {
-					case 1:
-						sendAlert('Unable to Purchase Upgrade');
-						break;
-					case 2:
+					case 'INVALID_PERMISSIONS':
 						sendAlert('Not Authorized');
 						break;
-					case 3:
-						sendAlert('Unable to Purchase Upgrade');
-						break;
-					case -1:
+					case 'NOT_IMPLEMENTED':
 						sendAlert('Not Yet Implemented');
+						break;
+					default:
+					case 'ERROR':
+						sendAlert('Unable to Purchase Upgrade');
 						break;
 				}
 			}

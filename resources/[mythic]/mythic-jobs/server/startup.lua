@@ -239,6 +239,42 @@ function FetchCharactersWithJob(jobId)
 	return characters
 end
 
+function DeleteJob(jobId)
+	return MySQL.query.await('DELETE FROM jobs WHERE jobId = ?', { jobId }) ~= nil
+end
+
+function RemoveOfflineCharacterJobs(jobId, onlineCharacters)
+	local online = {}
+	for k, v in ipairs(onlineCharacters or {}) do
+		online[v] = true
+	end
+
+	local rows = MySQL.query.await(
+		[[SELECT SID, `character` FROM characters WHERE JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), JSON_OBJECT('Id', ?))]],
+		{ jobId }
+	)
+
+	local updated = 0
+	for k, v in ipairs(rows) do
+		if not online[v.SID] then
+			local character = json.decode(v.character)
+			local jobs = {}
+
+			for k2, job in ipairs(character.Jobs or {}) do
+				if job.Id ~= jobId then
+					table.insert(jobs, job)
+				end
+			end
+
+			if StoreCharacterJobs(v.SID, jobs) then
+				updated = updated + 1
+			end
+		end
+	end
+
+	return updated
+end
+
 function UpdateOfflineCharacterJobs(jobId, onlineCharacters, mutate)
 	local online = {}
 	for k, v in ipairs(onlineCharacters or {}) do

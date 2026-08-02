@@ -774,8 +774,12 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:CoManager:PurchaseUpgrade", function(source, data, cb)
-		-- TODO
-		cb({ success = false, code = "ERROR" })
+		-- Jobs.Management.Upgrades stores and reports what a company owns, but
+		-- there is no catalogue to sell from yet: nothing defines which upgrades
+		-- exist, what they cost, or what owning one does, and player companies
+		-- have no bank account to charge. The app renders an empty list until
+		-- one is defined, so this is only reachable by a crafted request
+		cb({ success = false, code = "NOT_IMPLEMENTED" })
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:CoManager:AcceptHire", function(source, data, cb)
@@ -813,8 +817,29 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:CoManager:DisbandCompany", function(source, data, cb)
-		-- ! Disabled
-		cb({ success = false, code = "ERROR" })
+		local jobId = data and data.JobId
+
+		if jobId and not hasValue(_blacklistedJobs, jobId) then
+			if Jobs.Permissions:IsOwner(source, jobId) then
+				local job = Jobs:Get(jobId)
+				if job and job.Type == "Company" then
+					-- Don't pull the company out from under a transfer someone
+					-- has already been asked to accept
+					if _pendingXfers[jobId] then
+						return cb({ success = false, code = "OUTSTANDING_OFFER" })
+					end
+
+					if Jobs.Management:Delete(jobId) then
+						return cb({ success = true })
+					end
+				end
+
+				return cb({ success = false, code = "ERROR" })
+			end
+
+			return cb({ success = false, code = "INVALID_PERMISSIONS" })
+		end
+		return cb({ success = false, code = "ERROR" })
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:CoManager:TransferCompany", function(source, data, cb)
