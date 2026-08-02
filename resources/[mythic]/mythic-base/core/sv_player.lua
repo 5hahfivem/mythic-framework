@@ -136,7 +136,7 @@ COMPONENTS.Player = {
 	_required = {},
 	_name = "base",
 	CheckTokens = function(self, source, accountId, existing)
-		local p = promise.new()
+		local tkns = {}
 
 		local ctkns = {}
 		for i = 0, GetNumPlayerTokens(source) - 1 do
@@ -152,41 +152,20 @@ COMPONENTS.Player = {
 			for k, v in pairs(ctkns) do
 				table.insert(existing, k)
 			end
-			COMPONENTS.Database.Auth:updateOne({
-				collection = "users",
-				query = {
-					_id = accountId,
-				},
-				update = {
-					["$set"] = {
-						tokens = existing,
-					},
-				},
-			}, function()
-				p:resolve(existing)
-			end)
+
+			tkns = existing
 		else
-			local tkns = {}
 			for k, v in pairs(ctkns) do
 				table.insert(tkns, k)
 			end
-
-			COMPONENTS.Database.Auth:updateOne({
-				collection = "users",
-				query = {
-					_id = accountId,
-				},
-				update = {
-					["$set"] = {
-						tokens = tkns,
-					},
-				},
-			}, function()
-				p:resolve(tkns)
-			end)
 		end
 
-		return Citizen.Await(p)
+		MySQL.query.await("UPDATE users SET tokens = ? WHERE id = ?", {
+			json.encode(tkns),
+			accountId,
+		})
+
+		return tkns
 	end,
 }
 
@@ -195,6 +174,10 @@ function PlayerClass(source, data)
 
 	_data.Permissions = {
 		IsStaff = function(self)
+			if HasStaffAce(_data, "mythic.staff") then
+				return true
+			end
+
 			for k, v in ipairs(_data:GetData("Groups")) do
 				if
 					COMPONENTS.Config.Groups[v] ~= nil
@@ -207,6 +190,10 @@ function PlayerClass(source, data)
 			return false
 		end,
 		IsAdmin = function(self)
+			if HasStaffAce(_data, "mythic.admin") then
+				return true
+			end
+
 			for k, v in ipairs(_data:GetData("Groups")) do
 				if
 					COMPONENTS.Config.Groups[v] ~= nil
@@ -219,7 +206,7 @@ function PlayerClass(source, data)
 			return false
 		end,
 		GetLevel = function(self)
-			local highest = 0
+			local highest = GetStaffAceLevel(_data)
 			for k, v in ipairs(_data:GetData("Groups")) do
 				if
 					COMPONENTS.Config.Groups[tostring(v)] ~= nil
@@ -262,4 +249,30 @@ function GetPlayerSteam(source)
 		end
 	end
 	return false
+end
+
+-- Owner / Admin / Staff are granted through ACE principals in configs/permissions.cfg
+STAFF_ACES = {
+	{ ace = "mythic.owner", level = 100 },
+	{ ace = "mythic.admin", level = 75 },
+	{ ace = "mythic.staff", level = 50 },
+}
+
+function HasStaffAce(player, ace)
+	local source = player:GetData("Source")
+	if not source or source == 0 or GetPlayerName(source) == nil then
+		return false
+	end
+
+	return IsPlayerAceAllowed(source, ace)
+end
+
+function GetStaffAceLevel(player)
+	for k, v in ipairs(STAFF_ACES) do
+		if HasStaffAce(player, v.ace) then
+			return v.level
+		end
+	end
+
+	return 0
 end

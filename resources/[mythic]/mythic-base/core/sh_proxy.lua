@@ -1,6 +1,5 @@
 local _req = { 'ExportsReady' }
 local _deps = {}
-if IsDuplicityVersion() then _req = { 'ExportsReady', 'DatabaseReady' } end
 
 COMPONENTS.Proxy = {
     _required = _req,

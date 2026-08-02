@@ -1,6 +1,5 @@
 AddEventHandler("EMS:Shared:DependencyUpdate", EMSComponents)
 function EMSComponents()
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
@@ -12,7 +11,6 @@ end
 
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("EMS", {
-		"Database",
 		"Middleware",
 		"Callbacks",
 		"Logger",

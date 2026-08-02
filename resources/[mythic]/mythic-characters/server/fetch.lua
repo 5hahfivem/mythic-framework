@@ -42,24 +42,13 @@ FETCH = {
 		return c
 	end,
 	GetOfflineData = function(self, stateId, key)
-		local p = promise.new()
-		Database.Game:findOne({
-			collection = 'characters',
-			query = {
-				SID = stateId,
-			},
-			options = {
-				projection = {
-					[key] = true,
-				},
-			},
-		}, function(success, results)
-			if not success then
-				return p:resolve(nil)
-			end
-			return p:resolve(results[1][key])
-		end)
-		return Citizen.Await(p)
+		local character = DecodeCharacter(MySQL.single.await('SELECT * FROM characters WHERE SID = ?', { stateId }))
+
+		if character == nil then
+			return nil
+		end
+
+		return character[key]
 	end,
 }
 

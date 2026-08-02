@@ -18,74 +18,46 @@ function RegisterCallbacks()
 		end
 
 		local motd = GetConvar('motd', 'Welcome to Mythic RP')
-		Database.Game:find({
-			collection = 'changelogs',
-			options = {
-				sort = {
-					date = -1,
-				},
-			},
-			limit = 1,
-		}, function(success, results)
-			if not success then
-				cb({ changelog = nil, motd = '' })
-				return
-			end
+		local results = MySQL.query.await('SELECT * FROM changelogs ORDER BY date DESC LIMIT 1', {})
 
-			if #results > 0 then
-				cb({ changelog = results[1], motd = motd })
-			else
-				cb({ changelog = nil, motd = motd })
-			end
-		end)
+		if #results > 0 then
+			cb({ changelog = json.decode(results[1].changelog), motd = motd })
+		else
+			cb({ changelog = nil, motd = motd })
+		end
 	end)
 
 	Callbacks:RegisterServerCallback('Characters:GetCharacters', function(source, data, cb)
 		local player = Fetch:Source(source)
-		Database.Game:find({
-			collection = 'characters',
-			query = {
-				User = player:GetData('AccountID'),
-				Deleted = {
-					['$ne'] = true,
-				},
-			},
-		}, function(success, results)
-			if not success then
-				cb(nil)
-				return
-			end
-			local cData = {}
-			for k, v in ipairs(results) do
-				local p = promise.new()
+		local rows = MySQL.query.await('SELECT * FROM characters WHERE User = ? AND Deleted = 0', {
+			player:GetData('AccountID'),
+		})
 
-				Database.Game:findOne({
-					collection = 'peds',
-					query = {
-						Char = v._id
-					}
-				}, function(s2, pedData)
-					table.insert(cData, {
-						ID = v._id,
-						First = v.First,
-						Last = v.Last,
-						Phone = v.Phone,
-						DOB = v.DOB,
-						Gender = v.Gender,
-						LastPlayed = v.LastPlayed,
-						Jobs = v.Jobs,
-						SID = v.SID,
-						GangChain = v.GangChain,
-						Preview = pedData[1]?.Ped or false
-					})
-					p:resolve(true)
-				end)
+		local results = {}
+		for k, v in ipairs(rows) do
+			table.insert(results, DecodeCharacter(v))
+		end
 
-				Citizen.Await(p)
-			end
-			player:SetData('Characters', cData)
-			cb(cData)
-		end)
+		local cData = {}
+		for k, v in ipairs(results) do
+			local pedData = MySQL.single.await('SELECT Ped FROM peds WHERE Char = ?', { v._id })
+
+			table.insert(cData, {
+				ID = v._id,
+				First = v.First,
+				Last = v.Last,
+				Phone = v.Phone,
+				DOB = v.DOB,
+				Gender = v.Gender,
+				LastPlayed = v.LastPlayed,
+				Jobs = v.Jobs,
+				SID = v.SID,
+				GangChain = v.GangChain,
+				Preview = pedData and json.decode(pedData.Ped) or false
+			})
+		end
+		player:SetData('Characters', cData)
+		cb(cData)
 	end)
 
 	Callbacks:RegisterServerCallback('Characters:CreateCharacter', function(source, data, cb)
@@ -143,163 +115,147 @@ function RegisterCallbacks()
 			end
 		end
 
-		Database.Game:insertOne({
-			collection = 'characters',
-			document = doc,
-		}, function(success, result, insertedIds)
-			if not success then
-				cb(nil)
-				return nil
-			end
-			doc.ID = insertedIds[1]
-			TriggerEvent('Characters:Server:CharacterCreated', doc)
-			Middleware:TriggerEvent('Characters:Created', source, doc)
-			cb(doc)
+		local insertedId = MySQL.insert.await(
+			'INSERT INTO characters (User, SID, First, Last, Phone, Deleted, LastPlayed, `character`) VALUES(?, ?, ?, ?, ?, 0, ?, ?)',
+			{
+				doc.User,
+				doc.SID,
+				doc.First,
+				doc.Last,
+				doc.Phone,
+				doc.LastPlayed or -1,
+				json.encode(doc),
+			}
+		)
 
-			Logger:Info(
+		if insertedId == nil then
+			cb(nil)
+			return nil
+		end
+		doc.ID = insertedId
+		TriggerEvent('Characters:Server:CharacterCreated', doc)
+		Middleware:TriggerEvent('Characters:Created', source, doc)
+		cb(doc)
+
+		Logger:Info(
+			'Characters',
+			string.format(
+				'%s [%s] Created a New Character %s %s (%s)',
+				player:GetData('Name'),
+				player:GetData('AccountID'),
+				doc.First,
+				doc.Last,
+				doc.SID
+			),
+			{
+				console = true,
+				file = true,
+				database = true,
+			}
+		)
+	end)
+
+	Callbacks:RegisterServerCallback('Characters:DeleteCharacter', function(source, data, cb)
+		local player = Fetch:Source(source)
+		local deletingChar = DecodeCharacter(MySQL.single.await('SELECT * FROM characters WHERE id = ? AND User = ?', {
+			data,
+			player:GetData('AccountID'),
+		}))
+
+		if deletingChar == nil then
+			cb(nil)
+			return
+		end
+
+		deletingChar.Deleted = true
+
+		local success = MySQL.query.await(
+			'UPDATE characters SET Deleted = 1, `character` = ? WHERE id = ? AND User = ?',
+			{ json.encode(deletingChar), data, player:GetData('AccountID') }
+		) ~= nil
+
+		TriggerEvent('Characters:Server:CharacterDeleted', data)
+		cb(success)
+
+		if success then
+			Logger:Warn(
 				'Characters',
 				string.format(
-					'%s [%s] Created a New Character %s %s (%s)',
+					'%s [%s] Deleted Character %s %s (%s)',
 					player:GetData('Name'),
 					player:GetData('AccountID'),
-					doc.First,
-					doc.Last,
-					doc.SID
+					deletingChar.First,
+					deletingChar.Last,
+					deletingChar.SID
 				),
 				{
 					console = true,
 					file = true,
 					database = true,
+					discord = {
+						embed = true,
+					},
 				}
 			)
-		end)
-	end)
-
-	Callbacks:RegisterServerCallback('Characters:DeleteCharacter', function(source, data, cb)
-		local player = Fetch:Source(source)
-		Database.Game:findOne({
-			collection = 'characters',
-			query = {
-				User = player:GetData('AccountID'),
-				_id = data,
-			},
-		}, function(success, results)
-			if not success or not #results then
-				cb(nil)
-				return
-			end
-			local deletingChar = results[1]
-			Database.Game:updateOne({
-				collection = 'characters',
-				query = {
-					User = player:GetData('AccountID'),
-					_id = data,
-				},
-				update = {
-					['$set'] = {
-						Deleted = true,
-					},
-				},
-			}, function(success, results)
-				TriggerEvent('Characters:Server:CharacterDeleted', data)
-				cb(success)
-
-				if success then
-					Logger:Warn(
-						'Characters',
-						string.format(
-							'%s [%s] Deleted Character %s %s (%s)',
-							player:GetData('Name'),
-							player:GetData('AccountID'),
-							deletingChar.First,
-							deletingChar.Last,
-							deletingChar.SID
-						),
-						{
-							console = true,
-							file = true,
-							database = true,
-							discord = {
-								embed = true,
-							},
-						}
-					)
-				end
-			end)
-		end)
+		end
 	end)
 
 	Callbacks:RegisterServerCallback('Characters:GetSpawnPoints', function(source, data, cb)
 		local player = Fetch:Source(source)
-		Database.Game:findOne({
-			collection = 'characters',
-			query = {
-				User = player:GetData('AccountID'),
-				_id = data,
-			},
-			options = {
-				projection = {
-					SID = 1,
-					New = 1,
-					Jailed = 1,
-					ICU = 1,
-					Apartment = 1,
-					Jobs = 1,
+		local character = DecodeCharacter(MySQL.single.await('SELECT * FROM characters WHERE id = ? AND User = ?', {
+			data,
+			player:GetData('AccountID'),
+		}))
+
+		local results = { character }
+		if character == nil then
+			cb(nil)
+			return
+		end
+		if results[1].New then
+			cb({
+				{
+					id = 1,
+					label = 'Character Creation',
+					location = Apartment:GetInteriorLocation(results[1].Apartment or 1),
 				},
-			},
-		}, function(success, results)
-			if not success or not #results then
-				cb(nil)
-				return
-			end
-			if results[1].New then
-				cb({
-					{
-						id = 1,
-						label = 'Character Creation',
-						location = Apartment:GetInteriorLocation(results[1].Apartment or 1),
-					},
-				})
-			elseif results[1].Jailed and not results[1].Jailed.Released ~= nil then
-				cb({ Config.PrisonSpawn })
-			elseif results[1].ICU and not results[1].ICU.Released then
-				cb({ Config.ICUSpawn })
-			else
-				local spawns = Middleware:TriggerEventWithData('Characters:GetSpawnPoints', source, data, results[1])
-				cb(spawns)
-			end
-		end)
+			})
+		elseif results[1].Jailed and not results[1].Jailed.Released ~= nil then
+			cb({ Config.PrisonSpawn })
+		elseif results[1].ICU and not results[1].ICU.Released then
+			cb({ Config.ICUSpawn })
+		else
+			local spawns = Middleware:TriggerEventWithData('Characters:GetSpawnPoints', source, data, results[1])
+			cb(spawns)
+		end
 	end)
 
 	Callbacks:RegisterServerCallback('Characters:GetCharacterData', function(source, data, cb)
 		local player = Fetch:Source(source)
-		Database.Game:findOne({
-			collection = 'characters',
-			query = {
-				User = player:GetData('AccountID'),
-				_id = data,
-			},
-		}, function(success, results)
-			if not success or not #results then
-				cb(nil)
-				return
-			end
+		local character = DecodeCharacter(MySQL.single.await('SELECT * FROM characters WHERE id = ? AND User = ?', {
+			data,
+			player:GetData('AccountID'),
+		}))
 
-			local cData = results[1]
-			cData.Source = source
-			cData.ID = results[1]._id
-			cData._id = nil
+		if character == nil then
+			cb(nil)
+			return
+		end
 
-			local store = DataStore:CreateStore(source, 'Character', cData)
+		local cData = character
+		cData.Source = source
+		cData.ID = character._id
+		cData._id = nil
 
-			player:SetData('Character', store)
-			GlobalState[string.format('SID:%s', source)] = cData.SID
-			GlobalState[string.format('Account:%s', source)] = player:GetData('AccountID')
+		local store = DataStore:CreateStore(source, 'Character', cData)
 
-			Middleware:TriggerEvent('Characters:CharacterSelected', source)
+		player:SetData('Character', store)
+		GlobalState[string.format('SID:%s', source)] = cData.SID
+		GlobalState[string.format('Account:%s', source)] = player:GetData('AccountID')
 
-			cb(cData)
-		end)
+		Middleware:TriggerEvent('Characters:CharacterSelected', source)
+
+		cb(cData)
 	end)
 
 	Callbacks:RegisterServerCallback('Characters:Logout', function(source, data, cb)
@@ -407,23 +363,9 @@ function RegisterMiddleware()
 end
 
 function IsNumberInUse(number)
-	local var = nil
-	Database.Game:findOne({
-		collection = 'characters',
-		query = {
-			phone = number,
-		},
-	}, function(success, results)
-		if not success then
-			var = true
-			return
-		end
-		var = #results > 0
-	end)
+	local count = MySQL.scalar.await('SELECT COUNT(*) FROM characters WHERE Phone = ?', { number })
 
-	while var == nil do
-		Wait(10)
-	end
+	return count ~= nil and count > 0
 end
 
 function GeneratePhoneNumber()

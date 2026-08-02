@@ -57,29 +57,27 @@ function RegisterChatCommands()
 	Chat:RegisterStaffCommand("twitteraccount", function(source, args, rawCommand)
 		local twitterName = args[1]
 
-		Database.Game:findOne({
-			collection = "characters",
-			query = {
-				["Alias.twitter.name"] = twitterName,
-			},
-		}, function(success, results)
-			if success and #results > 0 then
-				local char = results[1]
-				Chat.Send.System:Single(
-					source,
-					string.format(
-						"Twitter Account Found With Name: %s. %s %s (SID: %s) [User: %s]",
-						twitterName,
-						char.First,
-						char.Last,
-						char.SID,
-						char.User
-					)
+		local row = MySQL.single.await(
+			[[SELECT * FROM characters WHERE JSON_VALUE(`character`, '$.Alias.twitter.name') = ?]],
+			{ twitterName }
+		)
+
+		if row ~= nil then
+			local char = json.decode(row.character)
+			Chat.Send.System:Single(
+				source,
+				string.format(
+					"Twitter Account Found With Name: %s. %s %s (SID: %s) [User: %s]",
+					twitterName,
+					char.First,
+					char.Last,
+					char.SID,
+					char.User
 				)
-			else
-				Chat.Send.System:Single(source, "No Twitter Account Found")
-			end
-		end)
+			)
+		else
+			Chat.Send.System:Single(source, "No Twitter Account Found")
+		end
 	end, {
 		help = "[Admin] Get Twitter Account Owner",
 		params = {

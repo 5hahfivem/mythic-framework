@@ -1,30 +1,14 @@
 PHONE.Messages = {
 	Read = function(self, owner, number)
-		Database.Game:update({
-			collection = "phone_messages",
-			query = {
-				owner = owner,
-				number = number,
-			},
-			update = {
-				["$set"] = {
-					unread = false,
-				},
-			},
+		MySQL.query.await("UPDATE phone_messages SET unread = 0 WHERE owner = ? AND number = ?", {
+			owner,
+			number,
 		})
 	end,
 	Delete = function(self, owner, number)
-		Database.Game:update({
-			collection = "phone_messages",
-			query = {
-				owner = owner,
-				number = number,
-			},
-			update = {
-				["$set"] = {
-					deleted = true,
-				},
-			},
+		MySQL.query.await("UPDATE phone_messages SET deleted = 1 WHERE owner = ? AND number = ?", {
+			owner,
+			number,
 		})
 	end,
 }
@@ -32,31 +16,15 @@ PHONE.Messages = {
 AddEventHandler("Phone:Server:RegisterMiddleware", function()
 	Middleware:Add("Characters:Spawning", function(source)
 		local char = Fetch:Source(source):GetData("Character")
-		Database.Game:find({
-			collection = "phone_messages",
-			query = {
-				owner = char:GetData("Phone"),
-				deleted = {
-					["$ne"] = true,
-				},
-			},
-		}, function(success, messages)
-			TriggerClientEvent("Phone:Client:SetData", source, "messages", messages)
-		end)
+		local messages = FetchPhoneMessages(char:GetData("Phone"))
+
+		TriggerClientEvent("Phone:Client:SetData", source, "messages", messages)
 	end, 2)
 	Middleware:Add("Phone:UIReset", function(source)
 		local char = Fetch:Source(source):GetData("Character")
-		Database.Game:find({
-			collection = "phone_messages",
-			query = {
-				owner = char:GetData("Phone"),
-				deleted = {
-					["$ne"] = true,
-				},
-			},
-		}, function(success, messages)
-			TriggerClientEvent("Phone:Client:SetData", source, "messages", messages)
-		end)
+		local messages = FetchPhoneMessages(char:GetData("Phone"))
+
+		TriggerClientEvent("Phone:Client:SetData", source, "messages", messages)
 	end, 2)
 end)
 
@@ -73,11 +41,13 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 			method = 0,
 			unread = true,
 		}
-		Database.Game:insert({
-			collection = "phone_messages",
-			documents = { data, data2 },
-		}, function(success, result, insertedIds)
-			if not success then
+		local insertedIds = {
+			InsertPhoneMessage(data),
+			InsertPhoneMessage(data2),
+		}
+
+		do
+			if insertedIds[1] == nil then
 				cb(nil)
 				return
 			end
@@ -87,7 +57,7 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 				TriggerClientEvent("Phone:Client:Messages:Notify", target:GetData("Source"), data2, false)
 			end
 			cb(insertedIds[1])
-		end)
+		end
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:Messages:ReadConvo", function(source, data, cb)
@@ -102,3 +72,30 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		Phone.Messages:Delete(char:GetData("Phone"), data.number)
 	end)
 end)
+
+function FetchPhoneMessages(owner)
+	local rows = MySQL.query.await("SELECT * FROM phone_messages WHERE owner = ? AND deleted = 0", { owner })
+
+	local messages = {}
+	for k, v in ipairs(rows) do
+		local message = json.decode(v.message)
+		message._id = v.id
+		message.unread = v.unread == 1
+		table.insert(messages, message)
+	end
+
+	return messages
+end
+
+function InsertPhoneMessage(message)
+	return MySQL.insert.await(
+		"INSERT INTO phone_messages (owner, number, time, unread, deleted, message) VALUES(?, ?, ?, ?, 0, ?)",
+		{
+			message.owner,
+			message.number,
+			message.time,
+			message.unread and 1 or 0,
+			json.encode(message),
+		}
+	)
+end

@@ -4,7 +4,6 @@ end)
 
 AddEventHandler("Locations:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Chat = exports["mythic-base"]:FetchComponent("Chat")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Locations = exports["mythic-base"]:FetchComponent("Locations")
@@ -14,7 +13,6 @@ end
 
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Locations", {
-		"Database",
 		"Chat",
 		"Callbacks",
 		"Locations",
@@ -77,34 +75,30 @@ LOCATIONS = {
 			Type = type,
 			Name = name,
 		}
-		Database.Game:insertOne({
-			collection = "locations",
-			document = doc,
-		}, function(success, results)
-			if not success then
-				return
-			end
+		local id = MySQL.insert.await("INSERT INTO locations (Type, Name, Coords, Heading) VALUES(?, ?, ?, ?)", {
+			doc.Type,
+			doc.Name,
+			json.encode(doc.Coords),
+			doc.Heading,
+		})
 
-			TriggerEvent("Locations:Server:Added", type, doc)
-			if cb ~= nil then
-				cb(results > 0)
-			end
-		end)
+		if not id then
+			return
+		end
+
+		TriggerEvent("Locations:Server:Added", type, doc)
+		if cb ~= nil then
+			cb(id > 0)
+		end
 	end,
 	GetAll = function(self, type, cb)
-		Database.Game:find({
-			collection = "locations",
-			query = {
-				Type = type,
-			},
-		}, function(success, results)
-			if not success then
-				return
-			end
-			for k, location in ipairs(results) do
-				results[k].Coords = vector3(location.Coords.x, location.Coords.y, location.Coords.z)
-			end
-			cb(results)
-		end)
+		local results = MySQL.query.await("SELECT * FROM locations WHERE Type = ?", { type })
+
+		for k, location in ipairs(results) do
+			local coords = json.decode(location.Coords)
+			results[k].Coords = vector3(coords.x, coords.y, coords.z)
+		end
+
+		cb(results)
 	end,
 }

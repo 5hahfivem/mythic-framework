@@ -2,32 +2,24 @@ _managementData = {}
 
 DEALERSHIPS.Management = {
     LoadData = function(self)
-        local p = promise.new()
-        Database.Game:find({
-            collection = 'dealer_data',
-            query = {}
-        }, function(success, results)
-            if success then
-                local fuckface = {}
-                for k, v in ipairs(results) do
-                    if v.dealership then
-                        fuckface[v.dealership] = v
-                    end
-                end
+        local results = MySQL.query.await('SELECT * FROM dealer_data', {})
 
-                for k, v in pairs(_dealerships) do
-                    if fuckface[k] then
-                        _managementData[k] = fuckface[k]
-                    else
-                        _managementData[k] = _defaultDealershipSalesData
-                    end
-                end
-                p:resolve(true)
-            else
-                p:resolve(false)
+        local fuckface = {}
+        for k, v in ipairs(results) do
+            if v.dealership then
+                fuckface[v.dealership] = json.decode(v.data)
             end
-        end)
-        return Citizen.Await(p)
+        end
+
+        for k, v in pairs(_dealerships) do
+            if fuckface[k] then
+                _managementData[k] = fuckface[k]
+            else
+                _managementData[k] = _defaultDealershipSalesData
+            end
+        end
+
+        return true
     end,
     SetData = function(self, dealerId, key, val)
         local data = _managementData[dealerId]
@@ -37,27 +29,20 @@ DEALERSHIPS.Management = {
             dealerData._id = nil
             dealerData[key] = val
 
-            local p = promise.new()
-            Database.Game:updateOne({
-                collection = 'dealer_data',
-                query = {
-                    dealership = dealerId,
-                },
-                update = {
-                    ['$set'] = dealerData
-                },
-                options = {
-                    upsert = true,
+            local success = MySQL.query.await(
+                'INSERT INTO dealer_data (dealership, `data`) VALUES(?, ?) ON DUPLICATE KEY UPDATE `data` = VALUES(`data`)',
+                {
+                    dealerId,
+                    json.encode(dealerData),
                 }
-            }, function(success, results)
-                if success then
-                    _managementData[dealerId] = dealerData
-                    p:resolve(_managementData[dealerId])
-                else
-                    p:resolve(false)
-                end
-            end)
-            return Citizen.Await(p)
+            ) ~= nil
+
+            if success then
+                _managementData[dealerId] = dealerData
+                return _managementData[dealerId]
+            end
+
+            return false
         end
         return false
     end,
@@ -72,27 +57,20 @@ DEALERSHIPS.Management = {
                 dealerData[k] = v
             end
 
-            local p = promise.new()
-            Database.Game:updateOne({
-                collection = 'dealer_data',
-                query = {
-                    dealership = dealerId,
-                },
-                update = {
-                    ['$set'] = dealerData
-                },
-                options = {
-                    upsert = true,
+            local success = MySQL.query.await(
+                'INSERT INTO dealer_data (dealership, `data`) VALUES(?, ?) ON DUPLICATE KEY UPDATE `data` = VALUES(`data`)',
+                {
+                    dealerId,
+                    json.encode(dealerData),
                 }
-            }, function(success, results)
-                if success then
-                    _managementData[dealerId] = dealerData
-                    p:resolve(_managementData[dealerId])
-                else
-                    p:resolve(false)
-                end
-            end)
-            return Citizen.Await(p)
+            ) ~= nil
+
+            if success then
+                _managementData[dealerId] = dealerData
+                return _managementData[dealerId]
+            end
+
+            return false
         end
         return false
     end,

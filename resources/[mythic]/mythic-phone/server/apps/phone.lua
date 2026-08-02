@@ -35,89 +35,42 @@ PHONE.Call = {
 		end
 	end,
 	CreateRecord = function(self, record)
-		Database.Game:insertOne({
-			collection = "phone_calls",
-			document = record,
-		})
+		MySQL.insert.await(
+			"INSERT INTO phone_calls (owner, number, time, unread, deleted, decryptable, call) VALUES(?, ?, ?, ?, 0, ?, ?)",
+			{
+				record.owner,
+				record.number,
+				record.time or os.time(),
+				record.unread and 1 or 0,
+				record.decryptable and 1 or 0,
+				json.encode(record),
+			}
+		)
 	end,
 	Decrypt = function(self, owner, number)
-		Database.Game:update({
-			collection = "phone_calls",
-			document = {
-				owner = owner,
-				number = number,
-				decryptable = true,
-			},
-			update = {
-				["$set"] = {
-					anonymouse = false,
-				},
-			},
-		})
+		MySQL.query.await(
+			[[UPDATE phone_calls SET call = JSON_SET(call, '$.anonymouse', false)
+				WHERE owner = ? AND number = ? AND decryptable = 1]],
+			{ owner, number }
+		)
 	end,
 	Read = function(self, owner)
-		Database.Game:update({
-			collection = "phone_calls",
-			query = {
-				owner = owner,
-			},
-			update = {
-				["$set"] = {
-					unread = false,
-				},
-			},
-		})
+		MySQL.query.await("UPDATE phone_calls SET unread = 0 WHERE owner = ?", { owner })
 	end,
 }
 
 AddEventHandler("Phone:Server:RegisterMiddleware", function()
 	Middleware:Add("Characters:Spawning", function(source)
 		local char = Fetch:Source(source):GetData("Character")
-		Database.Game:aggregate({
-			collection = "phone_calls",
-			aggregate = {
-				{
-					["$match"] = {
-						owner = char:GetData("Phone"),
-						deleted = false or nil,
-					},
-				},
-				{
-					["$sort"] = {
-						time = -1,
-					},
-				},
-				{
-					["$limit"] = 100,
-				},
-			},
-		}, function(success, calls)
-			TriggerClientEvent("Phone:Client:SetData", source, "calls", calls or {})
-		end)
+		local calls = FetchPhoneCalls(char:GetData("Phone"))
+
+		TriggerClientEvent("Phone:Client:SetData", source, "calls", calls or {})
 	end, 2)
 	Middleware:Add("Phone:UIReset", function(source)
 		local char = Fetch:Source(source):GetData("Character")
-		Database.Game:aggregate({
-			collection = "phone_calls",
-			aggregate = {
-				{
-					["$match"] = {
-						owner = char:GetData("Phone"),
-						deleted = false or nil,
-					},
-				},
-				{
-					["$sort"] = {
-						time = -1,
-					},
-				},
-				{
-					["$limit"] = 100,
-				},
-			},
-		}, function(success, calls)
-			TriggerClientEvent("Phone:Client:SetData", source, "calls", calls or {})
-		end)
+		local calls = FetchPhoneCalls(char:GetData("Phone"))
+
+		TriggerClientEvent("Phone:Client:SetData", source, "calls", calls or {})
 	end, 2)
 	Middleware:Add("playerDropped", function(source, message)
 		if _calls[source] ~= nil then
@@ -392,3 +345,20 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		Phone.Call:Read(char:GetData("Phone"))
 	end)
 end)
+
+function FetchPhoneCalls(owner)
+	local rows = MySQL.query.await(
+		"SELECT * FROM phone_calls WHERE owner = ? AND deleted = 0 ORDER BY time DESC LIMIT 100",
+		{ owner }
+	)
+
+	local calls = {}
+	for k, v in ipairs(rows) do
+		local call = json.decode(v.call)
+		call._id = v.id
+		call.unread = v.unread == 1
+		table.insert(calls, call)
+	end
+
+	return calls
+end

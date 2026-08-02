@@ -6,13 +6,11 @@ AddEventHandler("Phone:Server:RegisterMiddleware", function()
 		local char = Fetch:Source(source):GetData("Character")
 
 		if _tracks == nil then
-			Database.Game:find({
-				collection = "tracks_pd",
-			}, function(success, tracks)
-				_tracks = tracks
-				TriggerClientEvent("Phone:Client:Blueline:StoreTracks", source, _tracks)
-				TriggerClientEvent("Phone:Client:SetData", source, "tracks_pd", _tracks)
-			end)
+			local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks_pd", {}), "track")
+
+			_tracks = tracks
+			TriggerClientEvent("Phone:Client:Blueline:StoreTracks", source, _tracks)
+			TriggerClientEvent("Phone:Client:SetData", source, "tracks_pd", _tracks)
 		else
 			TriggerClientEvent("Phone:Client:Blueline:StoreTracks", source, _tracks)
 			TriggerClientEvent("Phone:Client:SetData", source, "tracks_pd", _tracks)
@@ -26,13 +24,11 @@ AddEventHandler("Phone:Server:RegisterMiddleware", function()
 		local char = Fetch:Source(source):GetData("Character")
 
 		if _tracks == nil then
-			Database.Game:find({
-				collection = "tracks_pd",
-			}, function(success, tracks)
-				_tracks = tracks
-				TriggerClientEvent("Phone:Client:Blueline:StoreTracks", source, _tracks)
-				TriggerClientEvent("Phone:Client:SetData", source, "tracks_pd", _tracks)
-			end)
+			local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks_pd", {}), "track")
+
+			_tracks = tracks
+			TriggerClientEvent("Phone:Client:Blueline:StoreTracks", source, _tracks)
+			TriggerClientEvent("Phone:Client:SetData", source, "tracks_pd", _tracks)
 		else
 			TriggerClientEvent("Phone:Client:Blueline:StoreTracks", source, _tracks)
 			TriggerClientEvent("Phone:Client:SetData", source, "tracks_pd", _tracks)
@@ -54,9 +50,8 @@ AddEventHandler("Phone:Server:RegisterMiddleware", function()
 end)
 
 function ReloadRaceTracksPD()
-	Database.Game:find({
-		collection = "tracks_pd",
-	}, function(success, tracks)
+	local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks_pd", {}), "track")
+
 		_tracks = tracks
 		TriggerClientEvent("Phone:Client:Blueline:StoreTracks", -1, _tracks)
 		TriggerClientEvent("Phone:Client:SetData", -1, "tracks_pd", _tracks)
@@ -179,23 +174,13 @@ end
 function UpdateFastestPD(track, fastest)
 	local p = promise.new()
 
-	Database.Game:updateOne({
-		collection = "tracks_pd",
-		query = {
-			_id = track,
-		},
-		update = {
-			["$set"] = {
-				Fastest = fastest,
-			},
-		},
-	}, function(success, results)
-		if success then
-			return p:resolve(true)
-		else
-			return p:resolve(false)
-		end
-	end)
+	local success = UpdateTrackField('tracks_pd', track, 'Fastest', fastest)
+
+	if success then
+		return p:resolve(true)
+	else
+		return p:resolve(false)
+	end
 	return Citizen.Await(p)
 end
 
@@ -238,7 +223,6 @@ RegisterServerEvent("Phone:Blueline:FinishRace", function(nId, data, laps, plate
 		CreateThread(function()
 			Wait(tonumber(_races[tonumber(data)].dnf_time) * 1000)
 			FinishRacePD(tonumber(data))
-		end)
 	end
 end)
 
@@ -258,72 +242,48 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		local alias = tostring(char:GetData("Callsign"))
 
 		if alias ~= nil then
-			Database.Game:insertOne({
-				collection = "tracks_pd",
-				document = data,
-			}, function(success, result, insertedIds)
-				if not success then
-					cb(false)
-				end
-				cb(true)
-				data._id = insertedIds[1]
-				table.insert(_tracks, data)
-				TriggerClientEvent("Phone:Client:AddData", -1, "tracks_pd", data)
-			end)
+			local insertedIds = { MySQL.insert.await("INSERT INTO tracks_pd (track) VALUES(?)", { json.encode(data) }) }
+
+			if insertedIds[1] == nil then
+				cb(false)
+			end
+			cb(true)
+			data._id = insertedIds[1]
+			table.insert(_tracks, data)
+			TriggerClientEvent("Phone:Client:AddData", -1, "tracks_pd", data)
 		else
 			cb(false)
 		end
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:Blueline:SaveLaptimes", function(src, data, cb)
-		Database.Game:update({
-			collection = "tracks_pd",
-			query = {
-				_id = data.track,
-			},
-			update = {
-				["$push"] = {
-					History = {
-						["$each"] = data.laps,
-						["$sort"] = {
-							time = 1,
-						},
-						["$slice"] = 10,
-					},
-				},
-			},
-		}, function(success, results)
-			for k, v in ipairs(_tracks) do
-				if v._id == data.track then
-					for k2, v2 in ipairs(data.laps) do
-						table.insert(v.History, v2)
-					end
-					TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks_pd", v._id, v)
-					return
+		AppendTrackHistory('tracks_pd', data.track, data.laps)
+
+		for k, v in ipairs(_tracks) do
+			if v._id == data.track then
+				for k2, v2 in ipairs(data.laps) do
+					table.insert(v.History, v2)
 				end
+				TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks_pd", v._id, v)
+				return
 			end
-		end)
+		end
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:Blueline:DeleteTrack", function(src, data, cb)
 		local char = Fetch:Source(src):GetData("Character")
 		local alias = tostring(char:GetData("Callsign"))
 		if alias ~= nil then
-			Database.Game:deleteOne({
-				collection = "tracks_pd",
-				query = {
-					_id = data,
-				},
-			}, function(success, results)
-				cb(success)
-				TriggerClientEvent("Phone:Client:RemoveData", -1, "tracks_pd", data)
-				for k, v in ipairs(_tracks) do
-					if v._id == data then
-						table.remove(_tracks, k)
-						return
-					end
+			local success = MySQL.query.await("DELETE FROM tracks_pd WHERE id = ?", { data }) ~= nil
+
+			cb(success)
+			TriggerClientEvent("Phone:Client:RemoveData", -1, "tracks_pd", data)
+			for k, v in ipairs(_tracks) do
+				if v._id == data then
+					table.remove(_tracks, k)
+					return
 				end
-			end)
+			end
 		else
 			cb(false)
 		end
@@ -333,30 +293,17 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		local char = Fetch:Source(src):GetData("Character")
 		local alias = tostring(char:GetData("Callsign"))
 		if alias ~= nil then
-			Database.Game:updateOne({
-				collection = "tracks_pd",
-				query = {
-					_id = data,
-				},
-				update = {
-					["$set"] = {
-						History = {},
-					},
-					["$unset"] = {
-						Fastest = "",
-					},
-				},
-			}, function(success, results)
-				cb(success)
-				for k, v in ipairs(_tracks) do
-					if v._id == data then
-						v.Fastest = nil
-						v.History = {}
-						TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks_pd", data, v)
-						return
-					end
+			local success = ResetTrackHistory('tracks_pd', data)
+
+			cb(success)
+			for k, v in ipairs(_tracks) do
+				if v._id == data then
+					v.Fastest = nil
+					v.History = {}
+					TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks_pd", data, v)
+					return
 				end
-			end)
+			end
 		else
 			cb(false)
 		end
@@ -486,3 +433,64 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		end
 	end)
 end)
+
+function UpdateTrackField(tableName, id, key, value)
+	local row = MySQL.single.await(string.format("SELECT * FROM `%s` WHERE id = ?", tableName), { id })
+
+	if row == nil then
+		return false
+	end
+
+	local track = json.decode(row.track)
+	track[key] = value
+
+	return MySQL.query.await(string.format("UPDATE `%s` SET track = ? WHERE id = ?", tableName), {
+		json.encode(track),
+		id,
+	}) ~= nil
+end
+
+function ResetTrackHistory(tableName, id)
+	local row = MySQL.single.await(string.format("SELECT * FROM `%s` WHERE id = ?", tableName), { id })
+
+	if row == nil then
+		return false
+	end
+
+	local track = json.decode(row.track)
+	track.History = {}
+	track.Fastest = nil
+
+	return MySQL.query.await(string.format("UPDATE `%s` SET track = ? WHERE id = ?", tableName), {
+		json.encode(track),
+		id,
+	}) ~= nil
+end
+
+function AppendTrackHistory(tableName, id, laps)
+	local row = MySQL.single.await(string.format("SELECT * FROM `%s` WHERE id = ?", tableName), { id })
+
+	if row == nil then
+		return false
+	end
+
+	local track = json.decode(row.track)
+	track.History = track.History or {}
+
+	for k, v in ipairs(laps or {}) do
+		table.insert(track.History, v)
+	end
+
+	table.sort(track.History, function(a, b)
+		return (a.time or 0) < (b.time or 0)
+	end)
+
+	while #track.History > 10 do
+		table.remove(track.History)
+	end
+
+	return MySQL.query.await(string.format("UPDATE `%s` SET track = ? WHERE id = ?", tableName), {
+		json.encode(track),
+		id,
+	}) ~= nil
+end

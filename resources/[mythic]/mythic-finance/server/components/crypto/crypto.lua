@@ -103,19 +103,10 @@ function DoesCryptoWalletExist(wallet)
 		return false
 	end
 
-	local p = promise.new()
-	Database.Game:find({
-		collection = "characters",
-		query = {
-			CryptoWallet = wallet,
-		},
-	}, function(success, results)
-		if success and #results > 0 then
-			p:resolve(true)
-		else
-			p:resolve(false)
-		end
-	end)
+	local count = MySQL.scalar.await(
+		[[SELECT COUNT(*) FROM characters WHERE JSON_EXTRACT(`character`, '$.CryptoWallet') = ?]],
+		{ wallet }
+	)
 
-	return Citizen.Await(p)
+	return count ~= nil and count > 0
 end

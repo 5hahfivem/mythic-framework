@@ -3,21 +3,13 @@ _MDT.Metrics = {
 		return MDT.Metrics:Get(GlobalState["MDT:Metric:CurrentDay"])
 	end,
 	Get = function(self, key)
-		local p = promise.new()
-		Database.Game:findOne({
-			collection = "mdt_metrics",
-			query = {
-				date = key,
-			},
-		}, function(success, results)
-			if not success or #results == 0 then
-				p:resolve(false)
-				return
-			end
+		local row = MySQL.single.await("SELECT * FROM mdt_metrics WHERE date = ?", { key })
 
-			p:resolve(results[1])
-		end)
-		return Citizen.Await(p)
+		if row == nil then
+			return false
+		end
+
+		return json.decode(row.metrics)
 	end,
 }
 

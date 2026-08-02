@@ -2,7 +2,6 @@ FLAGGED_PLATES = {}
 
 AddEventHandler('Radar:Shared:DependencyUpdate', RetrieveComponents)
 function RetrieveComponents()
-    Database = exports['mythic-base']:FetchComponent('Database')
     Callbacks = exports['mythic-base']:FetchComponent('Callbacks')
     Logger = exports['mythic-base']:FetchComponent('Logger')
     Utils = exports['mythic-base']:FetchComponent('Utils')
@@ -14,7 +13,6 @@ end
 
 AddEventHandler('Core:Shared:Ready', function()
     exports['mythic-base']:RequestDependencies('Radar', {
-        'Database',
         'Callbacks',
         'Logger',
         'Utils',

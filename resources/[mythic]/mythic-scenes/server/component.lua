@@ -10,7 +10,6 @@ function RetrieveComponents()
 	Fetch = exports['mythic-base']:FetchComponent('Fetch')
 	Utils = exports['mythic-base']:FetchComponent('Utils')
     Execute = exports['mythic-base']:FetchComponent('Execute')
-	Database = exports['mythic-base']:FetchComponent('Database')
 	Middleware = exports['mythic-base']:FetchComponent('Middleware')
 	Callbacks = exports['mythic-base']:FetchComponent('Callbacks')
     Chat = exports['mythic-base']:FetchComponent('Chat')
@@ -29,7 +28,6 @@ AddEventHandler('Core:Shared:Ready', function()
 		'Utils',
         'Execute',
         'Chat',
-		'Database',
 		'Middleware',
 		'Callbacks',
 		'Logger',
@@ -193,22 +191,22 @@ _SCENES = {
                 scene.distance = 7.5
             end
 
-            local p = promise.new()
-            Database.Game:insertOne({
-                collection = 'scenes',
-                document = scene,
-            }, function(success, result, insertedIds)
-                if success then
-                    scene._id = insertedIds[1]
-                    p:resolve(scene)
-                    _loadedScenes[scene._id] = scene
-                    TriggerClientEvent('Scenes:Client:AddScene', -1, scene._id, scene)
-                else
-                    p:resolve(false)
-                end
-            end)
+            local id = MySQL.insert.await('INSERT INTO scenes (staff, route, expires, scene) VALUES(?, ?, ?, ?)', {
+                scene.staff,
+                scene.route or 0,
+                scene.expires or 0,
+                json.encode(scene),
+            })
 
-            return Citizen.Await(p)
+            if not id then
+                return false
+            end
+
+            scene._id = id
+            _loadedScenes[scene._id] = scene
+            TriggerClientEvent('Scenes:Client:AddScene', -1, scene._id, scene)
+
+            return scene
         end
     end,
     Edit = function(self, id, newData, isStaff)
@@ -243,47 +241,34 @@ _SCENES = {
 
             newData._id = nil
 
-            local p = promise.new()
-            Database.Game:updateOne({
-                collection = 'scenes',
-                query = {
-                    _id = id,
-                },
-                update = {
-                    ['$set'] = newData
-                },
-            }, function(success, result)
-                print(success, result)
-                if success then
-                    newData._id = id
-                    p:resolve(newData)
-                    _loadedScenes[id] = newData
-                    TriggerClientEvent('Scenes:Client:AddScene', -1, newData._id, newData)
-                else
-                    p:resolve(false)
-                end
-            end)
+            local result = MySQL.query.await('UPDATE scenes SET staff = ?, route = ?, expires = ?, scene = ? WHERE id = ?', {
+                newData.staff,
+                newData.route or 0,
+                newData.expires or 0,
+                json.encode(newData),
+                id,
+            })
 
-            return Citizen.Await(p)
+            if not result then
+                return false
+            end
+
+            newData._id = id
+            _loadedScenes[id] = newData
+            TriggerClientEvent('Scenes:Client:AddScene', -1, newData._id, newData)
+
+            return newData
         end
     end,
     Delete = function(self, id)
-        local p = promise.new()
-        Database.Game:deleteOne({
-            collection = 'scenes',
-            query = {
-                _id = id
-            },
-        }, function(success, deleted)
-            p:resolve(success)
+        local result = MySQL.query.await('DELETE FROM scenes WHERE id = ?', { id })
 
-            if success and _loadedScenes[id] then
-                _loadedScenes[id] = nil
-                TriggerClientEvent('Scenes:Client:RemoveScene', -1, id)
-            end
-        end)
+        if result and _loadedScenes[id] then
+            _loadedScenes[id] = nil
+            TriggerClientEvent('Scenes:Client:RemoveScene', -1, id)
+        end
 
-        return Citizen.Await(p)
+        return result ~= nil
     end,
 }
 
@@ -292,45 +277,19 @@ AddEventHandler('Proxy:Shared:RegisterReady', function()
 end)
 
 function DeleteExpiredScenes(deleteRouted)
-    local p = promise.new()
-
-    local query = {
-        staff = false,
-        expires = {
-            ['$lte'] = os.time()
-        }
-    }
+    local query = 'DELETE FROM scenes WHERE staff = 0 AND expires <= ?'
 
     if deleteRouted then -- Delete Routed
-        query = {
-            ['$or'] = {
-                {
-                    staff = false,
-                    expires = {
-                        ['$lte'] = os.time()
-                    }
-                },
-                {
-                    route = {
-                        ['$ne'] = 0,
-                    }
-                }
-            }
-        }
+        query = 'DELETE FROM scenes WHERE (staff = 0 AND expires <= ?) OR route != 0'
     end
 
-    Database.Game:delete({
-        collection = 'scenes',
-        query = query,
-    }, function(success, deleted)
-        if success then
-            p:resolve(deleted)
-        else
-            p:resolve(false)
-        end
-    end)
+    local result = MySQL.query.await(query, { os.time() })
 
-    return Citizen.Await(p)
+    if not result then
+        return false
+    end
+
+    return result.affectedRows
 end
 
 function LoadScenesFromDB()
@@ -338,16 +297,13 @@ function LoadScenesFromDB()
         _hasLoadedScenes = true
         DeleteExpiredScenes(true)
 
-        Database.Game:find({
-            collection = 'scenes',
-            query = {}
-        }, function(success, results)
-            if success and #results > 0 then
-                for k, v in ipairs(results) do
-                    _loadedScenes[v._id] = v
-                end
-            end
-        end)
+        local results = MySQL.query.await('SELECT * FROM scenes', {})
+
+        for k, v in ipairs(results) do
+            local scene = json.decode(v.scene)
+            scene._id = v.id
+            _loadedScenes[v.id] = scene
+        end
     end
 end
 

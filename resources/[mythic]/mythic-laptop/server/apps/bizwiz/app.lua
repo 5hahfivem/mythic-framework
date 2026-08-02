@@ -56,61 +56,16 @@ AddEventHandler("Laptop:Server:RegisterCallbacks", function()
   Callbacks:RegisterServerCallback("Laptop:BizWiz:EmployeeSearch", function(source, data, cb)
     local job = CheckBusinessPermissions(source)
 		if job then
-			Database.Game:find({
-				collection = "characters",
-				query = {
-					["$and"] = {
-						{
-							["$or"] = {
-								{
-									["$expr"] = {
-										["$regexMatch"] = {
-											input = {
-												["$concat"] = { "$First", " ", "$Last" },
-											},
-											regex = data.term or "",
-											options = "i",
-										},
-									},
-								},
-								{
-									["$expr"] = {
-										["$regexMatch"] = {
-											input = {
-												["$toString"] = "$SID",
-											},
-											regex = data.term or "",
-											options = "i",
-										},
-									},
-								},
-							},
-						},
-						{
-							Jobs = {
-								["$elemMatch"] = {
-									Id = job,
-								},
-							},
-						},
-					}
-				},
-				options = {
-					projection = {
-						_id = 0,
-						SID = 1,
-						First = 1,
-						Last = 1,
-					},
-					limit = 4,
-				},
-			}, function(success, results)
-				if not success then
-					cb({})
-					return
-				end
-				cb(results)
-			end)
+			local search = string.format("%%%s%%", data.term or "")
+			local results = MySQL.query.await(
+				[[SELECT SID, First, Last FROM characters
+					WHERE (CONCAT(First, ' ', Last) LIKE ? OR CAST(SID AS CHAR) LIKE ?)
+						AND JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), JSON_OBJECT('Id', ?))
+					LIMIT 4]],
+				{ search, search, job }
+			)
+
+			cb(results)
 		else
 			cb(false)
 		end
@@ -254,3 +209,23 @@ AddEventHandler("Laptop:Server:RegisterCallbacks", function()
 		end
 	end)
 end)
+
+function BizWizAuthorName(author)
+	if type(author) ~= 'table' then
+		return nil
+	end
+
+	return string.format('%s %s %s', author.First or '', author.Last or '', author.SID or '')
+end
+
+function DecodeBizWizRows(rows, column)
+	local decoded = {}
+
+	for k, v in ipairs(rows) do
+		local doc = json.decode(v[column])
+		doc._id = v.id
+		table.insert(decoded, doc)
+	end
+
+	return decoded
+end

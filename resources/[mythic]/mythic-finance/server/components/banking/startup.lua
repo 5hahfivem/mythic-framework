@@ -129,49 +129,29 @@ function RunBankingStartup()
 
     CreateOrganizationBankAccounts()
 
-    Database.Game:aggregate({
-        collection = 'bank_accounts',
-        aggregate = {
-            {
-                ['$group'] = {
-                    _id = '',
-                    TotalBalance = { ['$sum'] = '$Balance' },
-                    Count = { ['$sum'] = 1 }
-                }
-            }, 
-            {
-                ['$project'] = {
-                    _id = 0,
-                    TotalBalance = '$TotalBalance',
-                    Count = '$Count',
-                }
-            }
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            local data = results[1]
-            if data.Count then
-                Logger:Trace('Banking', 'Loaded ^2'.. data.Count .. '^7 Bank Accounts')
-            end
-            if data.TotalBalance then
-                Logger:Info('Banking', 'Total Balance Across All Accounts: ^2$' .. data.TotalBalance .. '^7')
-            end
-        end
-        Logger:Info('Banking', 'Loaded State Government Account - Balance: ^2$'.. stateAccount.Balance .. '^7')
-    end)
+    local data = MySQL.single.await(
+        'SELECT COUNT(*) AS Count, COALESCE(SUM(Balance), 0) AS TotalBalance FROM bank_accounts',
+        {}
+    )
 
-    Database.Game:delete({
-        collection = 'bank_accounts_transactions',
-        query = {
-            Timestamp = {
-                ['$lte'] = (os.time() - (60 * 60 * 24 * 30))
-            }
-        },
-    }, function(success, deleted)
-        if success then
-            Logger:Info('Banking', 'Cleared ^2' .. deleted .. '^7' .. ' Old Bank Transactions')
+    if data ~= nil then
+        if data.Count then
+            Logger:Trace('Banking', 'Loaded ^2'.. data.Count .. '^7 Bank Accounts')
         end
-    end)
+        if data.TotalBalance then
+            Logger:Info('Banking', 'Total Balance Across All Accounts: ^2$' .. data.TotalBalance .. '^7')
+        end
+    end
+    Logger:Info('Banking', 'Loaded State Government Account - Balance: ^2$'.. stateAccount.Balance .. '^7')
+
+    local deleted = MySQL.query.await(
+        'DELETE FROM bank_accounts_transactions WHERE Timestamp <= ?',
+        { (os.time() - (60 * 60 * 24 * 30)) }
+    )
+
+    if deleted ~= nil then
+        Logger:Info('Banking', 'Cleared ^2' .. deleted.affectedRows .. '^7' .. ' Old Bank Transactions')
+    end
 end
 
 AddEventHandler('Finance:Server:Startup', function()

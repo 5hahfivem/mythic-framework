@@ -1,73 +1,30 @@
 _MDT.Vehicles = {
 	Search = function(self, term)
-		local p = promise.new()
-		Database.Game:find({
-			collection = "vehicles",
-			query = {
-				["$or"] = {
-					{
-						['Owner.Type'] = 0,
-						['$expr'] = {
-							['$regexMatch'] = {
-								input = {
-									['$toString'] = '$Owner.Id'
-								},
-								regex = term,
-								options = "i",
-							}
-						}
-					},
-					{
-						VIN = {
-							['$regex'] = term,
-							['$options'] = "i",
-						}
-					},
-					{
-						RegisteredPlate = {
-							["$regex"] = term,
-							["$options"] = "i",
-						},
-					},
-					{
-						["$expr"] = {
-							["$regexMatch"] = {
-								input = {
-									["$concat"] = { "$Make", " ", "$Model" },
-								},
-								regex = term,
-								options = "i",
-							},
-						},
-					},
-				},
-			},
-			options = {
-				limit = 24,
-			},
-		}, function(success, results)
-			if not success then
-				p:resolve(false)
-				return
-			end
-			p:resolve(results)
-		end)
+		local search = string.format('%%%s%%', term)
+		local rows = MySQL.query.await(
+			[[SELECT vehicle FROM vehicles
+				WHERE (ownerType = 0 AND ownerId LIKE ?)
+					OR VIN LIKE ?
+					OR RegisteredPlate LIKE ?
+					OR CONCAT(Make, ' ', Model) LIKE ?
+				LIMIT 24]],
+			{ search, search, search, search }
+		)
+
 		GlobalState['MDT:Metric:Search'] = GlobalState['MDT:Metric:Search'] + 1
-		return Citizen.Await(p)
+
+		return DecodeVehicles(rows)
 	end,
 	View = function(self, VIN)
-		local p = promise.new()
-		Database.Game:findOne({
-			collection = "vehicles",
-			query = {
-				VIN = VIN,
-			},
-		}, function(success, results)
-			if not success or #results <= 0 then
-				p:resolve(false)
-				return
-			end
-			local vehicle = results[1]
+		local result = MySQL.single.await("SELECT vehicle FROM vehicles WHERE VIN = ?", { VIN })
+
+		if result == nil then
+			return false
+		end
+
+		local vehicle = json.decode(result.vehicle)
+
+		do
 
 			if vehicle.Owner then
 				if vehicle.Owner.Type == 0 then
@@ -87,99 +44,88 @@ _MDT.Vehicles = {
 					vehicle.Owner.JobName = vehicle.Owner.JobName .. " (Dealership Buyback)"
 				end
 			end
-			p:resolve(vehicle)
-		end)
-		return Citizen.Await(p)
+		end
+
+		return vehicle
 	end,
 	Flags = {
 		Add = function(self, VIN, data, plate)
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "vehicles",
-				query = {
-					VIN = VIN,
-				},
-				update = {
-					["$push"] = {
-						Flags = data,
-					},
-				},
-			}, function(success, result)
-				if success and data.radarFlag and plate then
-					Radar:AddFlaggedPlate(plate, 'Vehicle Flagged in MDT')
-				end
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			local vehicle = MDT.Vehicles:Fetch(VIN)
+			if not vehicle then
+				return false
+			end
+
+			vehicle.Flags = vehicle.Flags or {}
+			table.insert(vehicle.Flags, data)
+
+			local success = MDT.Vehicles:Store(VIN, vehicle)
+
+			if success and data.radarFlag and plate then
+				Radar:AddFlaggedPlate(plate, 'Vehicle Flagged in MDT')
+			end
+
+			return success
 		end,
 		Remove = function(self, VIN, flag)
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "vehicles",
-				query = {
-					VIN = VIN,
-				},
-				update = {
-					["$pull"] = {
-						Flags = {
-							Type = flag
-						},
-					},
-				},
-			}, function(success, result)
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			local vehicle = MDT.Vehicles:Fetch(VIN)
+			if not vehicle or not vehicle.Flags then
+				return false
+			end
+
+			for k = #vehicle.Flags, 1, -1 do
+				if vehicle.Flags[k].Type == flag then
+					table.remove(vehicle.Flags, k)
+				end
+			end
+
+			return MDT.Vehicles:Store(VIN, vehicle)
 		end,
 	},
 	UpdateStrikes = function(self, VIN, strikes)
-		local p = promise.new()
-		Database.Game:updateOne({
-			collection = "vehicles",
-			query = {
-				VIN = VIN,
-			},
-			update = {
-				["$set"] = {
-					Strikes = strikes,
-				},
-			},
-		}, function(success, result)
-			p:resolve(success)
-		end)
-		return Citizen.Await(p)
+		local vehicle = MDT.Vehicles:Fetch(VIN)
+		if not vehicle then
+			return false
+		end
+
+		vehicle.Strikes = strikes
+
+		return MDT.Vehicles:Store(VIN, vehicle)
 	end,
 	GetStrikes = function(self, VIN)
-		local p = promise.new()
-		Database.Game:findOne({
-			collection = "vehicles",
-			query = {
-				VIN = VIN,
-			},
-			options = {
-				projection = {
-					VIN = 1,
-					Strikes = 1,
-					RegisteredPlate = 1,
-				}
-			}
-		}, function(success, results)
-			if success then
-				local veh = results[1]
-				local strikes = 0
-				if veh and veh.Strikes and #veh.Strikes > 0 then
-					strikes = #veh.Strikes
-				end
+		local veh = MDT.Vehicles:Fetch(VIN)
+		local strikes = 0
+		if veh and veh.Strikes and #veh.Strikes > 0 then
+			strikes = #veh.Strikes
+		end
 
-				p:resolve(strikes)
-			else
-				p:resolve(0)
-			end
-		end)
+		return strikes
+	end,
+	Fetch = function(self, VIN)
+		local result = MySQL.single.await("SELECT vehicle FROM vehicles WHERE VIN = ?", { VIN })
 
-		return Citizen.Await(p)
-	end
+		if result == nil then
+			return false
+		end
+
+		return json.decode(result.vehicle)
+	end,
+	Store = function(self, VIN, vehicle)
+		return MySQL.query.await("UPDATE vehicles SET vehicle = ? WHERE VIN = ?", {
+			json.encode(vehicle),
+			VIN,
+		}) ~= nil
+	end,
 }
+
+function DecodeVehicles(rows)
+	local vehicles = {}
+
+	for k, v in ipairs(rows) do
+		table.insert(vehicles, json.decode(v.vehicle))
+	end
+
+	return vehicles
+end
 
 AddEventHandler("MDT:Server:RegisterCallbacks", function()
 	Callbacks:RegisterServerCallback("MDT:Search:vehicle", function(source, data, cb)

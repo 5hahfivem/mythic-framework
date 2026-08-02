@@ -68,50 +68,18 @@ function IsVINOwned(vin)
         return true
     end
 
-    local p = promise.new()
+    local count = MySQL.scalar.await('SELECT COUNT(*) FROM vehicles WHERE VIN = ?', { vin })
 
-    Database.Game:find({
-        collection = 'vehicles',
-        query = {
-            VIN = vin
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(true)
-        else
-            p:resolve(false)
-        end
-    end)
-
-    local res = Citizen.Await(p)
-    return res
+    return count ~= nil and count > 0
 end
 
 function IsPlateOwned(plate)
-    local p = promise.new()
+    local count = MySQL.scalar.await(
+        'SELECT COUNT(*) FROM vehicles WHERE RegisteredPlate = ? OR FakePlate = ?',
+        { plate, plate }
+    )
 
-    Database.Game:find({
-        collection = 'vehicles',
-        query = {
-            ['$or'] = {
-                {
-                    RegisteredPlate = plate,
-                },
-                {
-                    FakePlate = plate,
-                }
-            }
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(true)
-        else
-            p:resolve(false)
-        end
-    end)
-
-    local res = Citizen.Await(p)
-    return res
+    return count ~= nil and count > 0
 end
 
 AddEventHandler('Proxy:Shared:ExtendReady', function(component)

@@ -1,15 +1,8 @@
 AddEventHandler("Laptop:Server:RegisterCallbacks", function()
-	Database.Game:find({
-		collection = "business_notices",
-		query = {},
-	}, function(success, results)
-		if not success then
-			return
-		end
+	local results = DecodeRows(MySQL.query.await("SELECT * FROM business_notices", {}), "notice")
 
-		Logger:Trace("Laptop", "[BizWiz] Loaded ^2" .. #results .. "^7 Business Notices", { console = true })
-		_businessNotices = results
-	end)
+	Logger:Trace("Laptop", "[BizWiz] Loaded ^2" .. #results .. "^7 Business Notices", { console = true })
+	_businessNotices = results
 
 	Callbacks:RegisterServerCallback("Laptop:BizWiz:Notice:Create", function(source, data, cb)
 		local job = CheckBusinessPermissions(source, "LAPTOP_CREATE_NOTICE")
@@ -44,16 +37,18 @@ LAPTOP.BizWiz.Notices = {
 				Last = char:GetData("Last"),
 			}
 
-			Database.Game:insertOne({
-				collection = "business_notices",
-				document = data,
-			}, function(success, result, insertIds)
-				if not success then
+			local insertId = MySQL.insert.await("INSERT INTO business_notices (job, notice) VALUES(?, ?)", {
+				data.job,
+				json.encode(data),
+			})
+
+			do
+				if insertId == nil then
 					p:resolve(false)
 					return
 				end
 
-				data._id = insertIds[1]
+				data._id = insertId
 				table.insert(_businessNotices, data)
 
 				local jobDutyData = Jobs.Duty:GetDutyData(job)
@@ -63,22 +58,18 @@ LAPTOP.BizWiz.Notices = {
 					end
 				end
 
-				p:resolve(insertIds[1])
-			end)
+				p:resolve(insertId)
+			end
 			return Citizen.Await(p)
 		end
 		return false
 	end,
 	Delete = function(self, job, id)
 		local p = promise.new()
-		Database.Game:deleteOne({
-			collection = "business_notices",
-			query = {
-				_id = id,
-				job = job,
-			},
-		}, function(success, deleted)
-			if not success then
+		local deleted = MySQL.query.await("DELETE FROM business_notices WHERE id = ? AND job = ?", { id, job })
+
+		do
+			if deleted == nil then
 				p:resolve(false)
 				return
 			end
@@ -98,7 +89,19 @@ LAPTOP.BizWiz.Notices = {
 			end
 
 			p:resolve(true)
-		end)
+		end
 		return Citizen.Await(p)
 	end,
 }
+
+function DecodeRows(rows, column)
+	local decoded = {}
+
+	for k, v in ipairs(rows) do
+		local doc = json.decode(v[column])
+		doc._id = v.id
+		table.insert(decoded, doc)
+	end
+
+	return decoded
+end

@@ -3,124 +3,75 @@ LAPTOP.BizWiz = LAPTOP.BizWiz or {}
 LAPTOP.BizWiz.Documents = {
 	Search = function(self, jobId, term)
         if not term then term = '' end
-		local p = promise.new()
 
-        local aggregation = {}
+		local search = string.format('%%%%%%s%%%%', term)
 
-        table.insert(aggregation, {
-            ['$match'] = {
-                ['$or'] = {
-                    {
-                        title = { ['$regex'] = term, ['$options'] = 'i' }
-                    },
-					{
-                        ["$expr"] = {
-                            ["$regexMatch"] = {
-                                input = {
-									["$concat"] = { 
-										"$author.First", 
-										" ", 
-										"$author.Last", 
-										" ", 
-										{ ['$toString'] = "$author.SID" }
-									}
-                                },
-                                regex = term,
-                                options = "i",
-                            },
-                        },
-                    },
-                },
-				job = jobId,
-            },
-        })
-
-		Database.Game:aggregate({
-            collection = "business_documents",
-            aggregate = aggregation,
-        }, function(success, results)
-            if not success then
-				p:resolve(false)
-                return
-            end
-			p:resolve(results)
-        end)
-		return Citizen.Await(p)
+		return DecodeBizWizRows(MySQL.query.await(
+			[[SELECT * FROM business_documents WHERE job = ? AND (title LIKE ? OR authorName LIKE ?)]],
+			{ jobId, search, search }
+		), 'document')
 	end,
 	View = function(self, jobId, id)
 		local p = promise.new()
-        Database.Game:findOne({
-            collection = "business_documents",
-            query = {
-                job = jobId,
-                _id = id,
-            },
-        }, function(success, report)
-			if not report then
-				p:resolve(false)
-				return
-			end
-			p:resolve(report[1])
-        end)
-		return Citizen.Await(p)
+        local row = MySQL.single.await("SELECT * FROM business_documents WHERE id = ? AND job = ?", { id, jobId })
+
+		if row == nil then
+			return false
+		end
+
+		local report = json.decode(row.document)
+		report._id = row.id
+
+		return report
 	end,
 	Create = function(self, jobId, data)
-		local p = promise.new()
         data.job = jobId
-		Database.Game:insertOne({
-			collection = "business_documents",
-			document = data,
-		}, function(success, result, insertId)
-			if not success then
-				p:resolve(false)
-				return
-			end
-			p:resolve({
-				_id = insertId[1],
-			})
-		end)
 
-		return Citizen.Await(p)
+		local insertId = MySQL.insert.await(
+			"INSERT INTO business_documents (job, title, authorName, document) VALUES(?, ?, ?, ?)",
+			{
+				jobId,
+				data.title,
+				BizWizAuthorName(data.author),
+				json.encode(data),
+			}
+		)
+
+		if insertId == nil then
+			return false
+		end
+
+		return {
+			_id = insertId,
+		}
 	end,
 	Update = function(self, jobId, id, char, report)
-		local p = promise.new()
-		Database.Game:updateOne({
-			collection = "business_documents",
-			query = {
-				_id = id,
-                job = jobId,
-			},
-			update = {
-				["$set"] = report,
-				["$push"] = {
-					history = {
-						Time = (os.time() * 1000),
-						Char = char:GetData("SID"),
-						Log = string.format(
-								"%s Updated Report",
-								char:GetData("First") .. " " .. char:GetData("Last")
-						),
-					},
-				},
-			},
-		}, function(success, result)
-			p:resolve(success)
-		end)
-		return Citizen.Await(p)
+		local existing = Laptop.BizWiz.Documents:View(jobId, id)
+		if not existing then
+			return false
+		end
+
+		for k, v in pairs(report) do
+			existing[k] = v
+		end
+
+		existing.history = existing.history or {}
+		table.insert(existing.history, {
+			Time = (os.time() * 1000),
+			Char = char:GetData("SID"),
+			Log = string.format(
+					"%s Updated Report",
+					char:GetData("First") .. " " .. char:GetData("Last")
+			),
+		})
+
+		return MySQL.query.await(
+			"UPDATE business_documents SET title = ?, document = ? WHERE id = ? AND job = ?",
+			{ existing.title, json.encode(existing), id, jobId }
+		) ~= nil
 	end,
     Delete = function(self, jobId, id)
-        local p = promise.new()
-
-        Database.Game:deleteOne({
-			collection = "business_documents",
-			query = {
-				_id = id,
-                job = jobId,
-			},
-		}, function(success, deleted)
-			p:resolve(success)
-		end)
-		return Citizen.Await(p)
+        return MySQL.query.await("DELETE FROM business_documents WHERE id = ? AND job = ?", { id, jobId }) ~= nil
     end,
 }
 

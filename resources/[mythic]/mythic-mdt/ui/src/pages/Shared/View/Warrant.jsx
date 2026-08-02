@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 import { Link } from 'react-router-dom';
 import { useParams } from 'react-router';
 import moment from 'moment';
-import { usePerson } from '../../../hooks';
+import { usePerson, usePermissions } from '../../../hooks';
 
 import { toast } from 'react-toastify';
 import Nui from '../../../util/Nui';
@@ -56,10 +56,32 @@ export default ({ match }) => {
 	const classes = useStyles();
 	const history = useNavigate();
 	const formatPerson = usePerson();
+	const hasPerms = usePermissions();
 	const params = useParams();
 	const warrant = useSelector((state) => state.data.data.warrants).filter((w) => w._id == params.id)[0];
 
 	const [updating, setUpdating] = useState(false);
+
+	const onDelete = async () => {
+		if (hasPerms(true)) {
+			try {
+				let res = await (
+					await Nui.send('Delete', {
+						type: 'warrant',
+						id: warrant._id,
+					})
+				).json();
+
+				if (res) {
+					toast.success('Warrant Deleted');
+					history(`/search/warrants`);
+				} else toast.error('Unable to Delete Warrant');
+			} catch (err) {
+				console.log(err);
+				toast.error('Unable to Delete Warrant');
+			}
+		}
+	};
 
 	const onSubmit = async (e) => {
 		e.preventDefault();
@@ -92,6 +114,7 @@ export default ({ match }) => {
 						<Grid item xs={12}>
 							<ButtonGroup fullWidth>
 								<Button onClick={() => setUpdating(warrant.state)}>Update Status</Button>
+								{hasPerms(true) && <Button onClick={onDelete}>Delete Warrant</Button>}
 							</ButtonGroup>
 						</Grid>
 						<Grid item xs={6}>

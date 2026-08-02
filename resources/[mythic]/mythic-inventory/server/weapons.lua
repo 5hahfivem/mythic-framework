@@ -102,26 +102,32 @@ WEAPONS = {
 						isScratched = false
 					end
 	
-					Database.Game:insertOne({
-						collection = "firearms",
-						document = {
-							Serial = sn,
-							Item = item.name,
-							Model = model,
-							Owner = {
-								Char = char:GetData("ID"),
-								SID = char:GetData("SID"),
-								First = char:GetData("First"),
-								Last = char:GetData("Last"),
-							},
-							PurchaseTime = (os.time() * 1000),
-							Scratched = isScratched,
+					local firearm = {
+						Serial = sn,
+						Item = item.name,
+						Model = model,
+						Owner = {
+							Char = char:GetData("ID"),
+							SID = char:GetData("SID"),
+							First = char:GetData("First"),
+							Last = char:GetData("Last"),
 						},
-					}, function(success)
-						p:resolve(true)
-					end)
-	
-					Citizen.Await(p)
+						PurchaseTime = (os.time() * 1000),
+						Scratched = isScratched,
+					}
+
+					MySQL.insert.await(
+						"INSERT INTO firearms (Serial, Item, Scratched, ownerSID, ownerName, firearm) VALUES(?, ?, ?, ?, ?, ?)",
+						{
+							sn,
+							item.name,
+							isScratched and 1 or 0,
+							char:GetData("SID"),
+							string.format("%s %s", char:GetData("First"), char:GetData("Last")),
+							json.encode(firearm),
+						}
+					)
+
 					return sn
 				end
 			end
@@ -148,23 +154,28 @@ WEAPONS = {
 				}
 			end
 
-			Database.Game:insertOne({
-				collection = "firearms",
-				document = {
-					Serial = sn,
-					Item = item.name,
-					Model = model,
-					Owner = {
-						Company = isCompanyOwned.name,
-					},
-					PurchaseTime = (os.time() * 1000),
-					Scratched = isScratched,
+			local firearm = {
+				Serial = sn,
+				Item = item.name,
+				Model = model,
+				Owner = {
+					Company = isCompanyOwned.name,
 				},
-			}, function(success)
-				p:resolve(true)
-			end)
+				PurchaseTime = (os.time() * 1000),
+				Scratched = isScratched,
+				Flags = flags,
+			}
 
-			Citizen.Await(p)
+			MySQL.insert.await(
+				"INSERT INTO firearms (Serial, Item, Scratched, firearm) VALUES(?, ?, ?, ?)",
+				{
+					sn,
+					item.name,
+					isScratched and 1 or 0,
+					json.encode(firearm),
+				}
+			)
+
 			return sn
 		end
 	end,

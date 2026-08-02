@@ -23,34 +23,12 @@ _LOANS = {
         return _loanConfig.defaultInterestRate
     end,
     GetPlayerLoans = function(self, stateId, type)
-        local p = promise.new()
-        Database.Game:find({
-            collection = 'loans',
-            query = {
-                SID = stateId,
-                Type = type,
-                ['$or'] = {
-                    {
-                        Remaining = {
-                            ['$gt'] = 0,
-                        }
-                    },
-                    {
-                        Remaining = 0,
-                        LastPayment = {
-                            ['$gte'] = os.time() + (60 * 60 * 24 * 1)
-                        }
-                    }
-                }
-            }
-        }, function(success, results)
-            if not success then
-                p:resolve(false)
-                return
-            end
-            p:resolve(results)
-        end)
-        return Citizen.Await(p)
+        return MySQL.query.await(
+            [[SELECT * FROM loans
+                WHERE SID = ? AND Type = ?
+                    AND (Remaining > 0 OR (Remaining = 0 AND LastPayment >= ?))]],
+            { stateId, type, os.time() + (60 * 60 * 24 * 1) }
+        )
     end,
     CreateVehicleLoan = function(self, targetSource, VIN, totalCost, downPayment, totalWeeks)
         local char = Fetch:Source(targetSource):GetData('Character')
@@ -79,16 +57,9 @@ _LOANS = {
                 LastPayment = 0,
             }
 
-            Database.Game:insertOne({
-                collection = 'loans',
-                document = doc,
-            }, function(success, inserted)
-                if success and inserted > 0 then
-                    p:resolve(true)
-                else
-                    p:resolve(false)
-                end
-            end)
+            local inserted = InsertLoan(doc)
+
+            p:resolve(inserted ~= nil)
 
             local res = Citizen.Await(p)
             return res
@@ -122,16 +93,9 @@ _LOANS = {
                 LastPayment = 0,
             }
 
-            Database.Game:insertOne({
-                collection = 'loans',
-                document = doc,
-            }, function(success, inserted)
-                if success and inserted > 0 then
-                    p:resolve(true)
-                else
-                    p:resolve(false)
-                end
-            end)
+            local inserted = InsertLoan(doc)
+
+            p:resolve(inserted ~= nil)
 
             local res = Citizen.Await(p)
             return res
@@ -287,28 +251,12 @@ _LOANS = {
         }
     end,
     HasRemainingPayments = function(self, assetType, assetId)
-        local p = promise.new()
+        local l = MySQL.single.await(
+            'SELECT Remaining FROM loans WHERE Type = ? AND AssetIdentifier = ?',
+            { assetType, assetId }
+        )
 
-        Database.Game:findOne({
-            collection = 'loans',
-            query = {
-                Type = assetType,
-                AssetIdentifier = assetId,
-            }
-        }, function(success, results)
-            if success and #results > 0 then
-                local l = results[1]
-                if l and l.Remaining and l.Remaining > 0 then
-                    p:resolve(true)
-                else
-                    p:resolve(false)
-                end
-            else
-                p:resolve(false)
-            end
-        end)
-
-        return Citizen.Await(p)
+        return l ~= nil and l.Remaining ~= nil and l.Remaining > 0
     end,
     Credit = {
         Get = function(self, stateId)
@@ -331,41 +279,65 @@ AddEventHandler("Proxy:Shared:RegisterReady", function()
 end)
 
 function GetLoanByID(loanId, stateId)
-    local p = promise.new()
-    Database.Game:findOne({
-        collection = 'loans',
-        query = {
-            _id = loanId,
-            SID = stateId,
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results[1])
-        else
-            p:resolve(false)
-        end
-    end)
+    local loan = MySQL.single.await('SELECT * FROM loans WHERE id = ? AND SID = ?', { loanId, stateId })
 
-    local res = Citizen.Await(p)
-    return res
+    if loan == nil then
+        return false
+    end
+
+    loan._id = loan.id
+
+    return loan
 end
 
 function UpdateLoanById(loanId, update)
-    local p = promise.new()
-    Database.Game:updateOne({
-        collection = 'loans',
-        query = {
-            _id = loanId,
-        },
-        update = update,
-    }, function(success, updated)
-        if success and updated > 0 then
-            p:resolve(true)
-        else
-            p:resolve(false)
-        end
-    end)
+    local clauses, params = {}, {}
 
-    local res = Citizen.Await(p)
-    return res
+    for k, v in pairs(update['$set'] or {}) do
+        table.insert(clauses, string.format('`%s` = ?', k))
+        table.insert(params, type(v) == 'boolean' and (v and 1 or 0) or v)
+    end
+
+    for k, v in pairs(update['$inc'] or {}) do
+        table.insert(clauses, string.format('`%s` = `%s` + ?', k, k))
+        table.insert(params, v)
+    end
+
+    if #clauses == 0 then
+        return false
+    end
+
+    table.insert(params, loanId)
+
+    return MySQL.query.await(
+        string.format('UPDATE loans SET %s WHERE id = ?', table.concat(clauses, ', ')),
+        params
+    ) ~= nil
+end
+
+function InsertLoan(doc)
+    return MySQL.insert.await(
+        [[INSERT INTO loans (Creation, SID, Type, AssetIdentifier, Defaulted, InterestRate, Total, Remaining, Paid,
+            DownPayment, TotalPayments, PaidPayments, MissablePayments, MissedPayments, TotalMissedPayments,
+            NextPayment, LastPayment)
+            VALUES(?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]],
+        {
+            doc.Creation,
+            doc.SID,
+            doc.Type,
+            doc.AssetIdentifier,
+            doc.InterestRate,
+            doc.Total,
+            doc.Remaining,
+            doc.Paid,
+            doc.DownPayment,
+            doc.TotalPayments,
+            doc.PaidPayments,
+            doc.MissablePayments,
+            doc.MissedPayments,
+            doc.TotalMissedPayments,
+            doc.NextPayment,
+            doc.LastPayment,
+        }
+    )
 end

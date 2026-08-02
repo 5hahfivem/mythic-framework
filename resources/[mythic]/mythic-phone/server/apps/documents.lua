@@ -7,17 +7,17 @@ PHONE.Documents = {
             doc.owner = char:GetData("ID")
             doc.time = os.time()
 
-			Database.Game:insertOne({
-				collection = "character_documents",
-				document = doc,
-			}, function(success, res, insertedIds)
-                if success then
-                    doc._id = insertedIds[1]
-                    p:resolve(doc)
-                else
-                    p:resolve(false)
-                end
-			end)
+			local insertedId = MySQL.insert.await(
+				"INSERT INTO character_documents (owner, time, document) VALUES(?, ?, ?)",
+				{ doc.owner, doc.time, json.encode(doc) }
+			)
+
+			if insertedId ~= nil then
+				doc._id = insertedId
+				p:resolve(doc)
+			else
+				p:resolve(false)
+			end
 
             return Citizen.Await(p)
 		end
@@ -28,36 +28,30 @@ PHONE.Documents = {
 		if char ~= nil and type(doc) == "table" then
             local p = promise.new()
 
-			Database.Game:findOneAndUpdate({
-				collection = "character_documents",
-                query = {
-                    owner = char:GetData("ID"),
-                    _id = id,
-                },
-				update = {
-                    ["$set"] = {
-                        title = doc.title,
-                        content = doc.content,
-                        time = os.time(),
-                    }
-                },
-                options = {
-                    returnDocument = 'after',
-                }
-			}, function(success, res)
-                p:resolve(success)
+			local existing = FetchPhoneDocument(id)
+			local success = false
 
-                if res and res.sharedWith then
-                    for k, v in ipairs(res.sharedWith) do
-                        if v.ID then
-                            local char = Fetch:ID(v.ID)
-                            if char then
-                                TriggerClientEvent("Phone:Client:UpdateData", char:GetData("Source"), "myDocuments", res._id, res)
-                            end
+			if existing and existing.owner == char:GetData("ID") then
+				existing.title = doc.title
+				existing.content = doc.content
+				existing.time = os.time()
+				success = StorePhoneDocument(id, existing)
+			end
+
+			local res = success and existing or nil
+
+            p:resolve(success)
+
+            if res and res.sharedWith then
+                for k, v in ipairs(res.sharedWith) do
+                    if v.ID then
+                        local char = Fetch:ID(v.ID)
+                        if char then
+                            TriggerClientEvent("Phone:Client:UpdateData", char:GetData("Source"), "myDocuments", res._id, res)
                         end
                     end
                 end
-			end)
+            end
 
             return Citizen.Await(p)
 		end
@@ -68,59 +62,38 @@ PHONE.Documents = {
         if char ~= nil then
             local p = promise.new()
 
-            Database.Game:findOne({
-                collection = "character_documents",
-                query = {
-                    _id = id,
-                }
-            }, function(success, results)
-                if success and #results > 0 then
-                    local doc = results[1]
-                    if doc then
-                        if doc.owner == char:GetData("ID") then
-                            Database.Game:deleteOne({
-                                collection = "character_documents",
-                                query = {
-                                    _id = id,
-                                },
-                            }, function(success)
-                                p:resolve(success)
+            local doc = FetchPhoneDocument(id)
 
-                                if success then
-                                    if success and doc and doc.sharedWith then
-                                        for k, v in ipairs(doc.sharedWith) do
-                                            if v.ID then
-                                                local char = Fetch:ID(v.ID)
-                                                if char then
-                                                    TriggerClientEvent("Phone:Client:RemoveData", char:GetData("Source"), "myDocuments", doc._id)
-                                                end
-                                            end
-                                        end
-                                    end
+            if doc then
+                if doc.owner == char:GetData("ID") then
+                    local success = MySQL.query.await("DELETE FROM character_documents WHERE id = ?", { id }) ~= nil
+
+                    p:resolve(success)
+
+                    if success and doc.sharedWith then
+                        for k, v in ipairs(doc.sharedWith) do
+                            if v.ID then
+                                local shared = Fetch:ID(v.ID)
+                                if shared then
+                                    TriggerClientEvent("Phone:Client:RemoveData", shared:GetData("Source"), "myDocuments", id)
                                 end
-                            end)
-                        else
-                            Database.Game:updateOne({
-                                collection = "character_documents",
-                                query = {
-                                    _id = id,
-                                },
-                                update = {
-                                    ["$pull"] = {
-                                        sharedWith = { ID = char:GetData("ID") }
-                                    }
-                                },
-                            }, function(success, updated)
-                                p:resolve(success)
-                            end)
+                            end
                         end
-                    else
-                        p:resolve(false)
                     end
                 else
-                    p:resolve(false)
+                    local sharedWith = {}
+                    for k, v in ipairs(doc.sharedWith or {}) do
+                        if v.ID ~= char:GetData("ID") then
+                            table.insert(sharedWith, v)
+                        end
+                    end
+
+                    doc.sharedWith = sharedWith
+                    p:resolve(StorePhoneDocument(id, doc))
                 end
-            end)
+            else
+                p:resolve(false)
+            end
 
             return Citizen.Await(p)
         end
@@ -131,39 +104,15 @@ PHONE.Documents = {
 AddEventHandler("Phone:Server:RegisterMiddleware", function()
 	Middleware:Add("Characters:Spawning", function(source)
 		local char = Fetch:Source(source):GetData("Character")
-		Database.Game:find({
-			collection = "character_documents",
-			query = {
-                ['$or'] = {
-                    {
-                        owner = char:GetData("ID"),
-                    },
-                    {
-                        ['sharedWith.ID'] = char:GetData("ID"),
-                    }
-                }
-			},
-		}, function(success, docs)
-			TriggerClientEvent("Phone:Client:SetData", source, "myDocuments", docs)
-		end)
+		local docs = FetchPhoneDocumentsFor(char:GetData("ID"))
+
+		TriggerClientEvent("Phone:Client:SetData", source, "myDocuments", docs)
 	end, 2)
 	Middleware:Add("Phone:UIReset", function(source)
 		local char = Fetch:Source(source):GetData("Character")
-		Database.Game:find({
-			collection = "character_documents",
-			query = {
-                ['$or'] = {
-                    {
-                        owner = char:GetData("ID"),
-                    },
-                    {
-                        ['sharedWith.ID'] = char:GetData("ID"),
-                    }
-                }
-			},
-		}, function(success, docs)
-			TriggerClientEvent("Phone:Client:SetData", source, "myDocuments", docs)
-		end)
+		local docs = FetchPhoneDocumentsFor(char:GetData("ID"))
+
+		TriggerClientEvent("Phone:Client:SetData", source, "myDocuments", docs)
 	end, 2)
 end)
 
@@ -182,15 +131,7 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 
     Callbacks:RegisterServerCallback("Phone:Documents:Refresh", function(source, data, cb)
         local char = Fetch:Source(source):GetData("Character")
-		Database.Game:find({
-			collection = "character_documents",
-			query = {
-				owner = char:GetData("ID"),
-                ['sharedWith.ID'] = char:GetData("ID"),
-			},
-		}, function(success, docs)
-            cb("myDocuments", docs)
-		end)
+		cb("myDocuments", FetchPhoneDocumentsFor(char:GetData("ID")))
 	end)
 
     Callbacks:RegisterServerCallback("Phone:Documents:Share", function(source, data, cb)
@@ -289,38 +230,35 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
             else
                 local char = Fetch:Source(source):GetData("Character")
                 if char then
-                    Database.Game:findOneAndUpdate({
-                        collection = "character_documents",
-                        query = {
-                            _id = data.document._id,
-                            owner = { ['$ne'] = char:GetData("ID") },
-                            ['sharedWith.ID'] = { ['$ne'] = char:GetData("ID") },
-                        },
-                        update = {
-                            ["$push"] = {
-                                sharedWith = {
-                                    Time = os.time(),
-                                    ID = char:GetData("ID"),
-                                    First = char:GetData("First"),
-                                    Last = char:GetData("Last"),
-                                    SID = char:GetData("SID"),
-                                    RequireSignature = data.requireSignature,
-                                },
-                            },
-                            ["$set"] = {
-                                sharedBy = data.document.sharedBy
-                            }
-                        },
-                        options = {
-                            returnDocument = 'after',
-                        }
-                    }, function(success, res)
-                        if success then
-                            cb(res)
+                    local doc = FetchPhoneDocument(data.document._id)
+                    local alreadyShared = false
+
+                    for k, v in ipairs(doc and doc.sharedWith or {}) do
+                        if v.ID == char:GetData("ID") then
+                            alreadyShared = true
+                        end
+                    end
+
+                    if doc and doc.owner ~= char:GetData("ID") and not alreadyShared then
+                        doc.sharedWith = doc.sharedWith or {}
+                        table.insert(doc.sharedWith, {
+                            Time = os.time(),
+                            ID = char:GetData("ID"),
+                            First = char:GetData("First"),
+                            Last = char:GetData("Last"),
+                            SID = char:GetData("SID"),
+                            RequireSignature = data.requireSignature,
+                        })
+                        doc.sharedBy = data.document.sharedBy
+
+                        if StorePhoneDocument(data.document._id, doc) then
+                            cb(doc)
                         else
                             cb(false)
                         end
-                    end)
+                    else
+                        cb(false)
+                    end
                 else
                     cb(false)
                 end
@@ -333,48 +271,68 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
     Callbacks:RegisterServerCallback("Phone:Documents:Sign", function(source, data, cb)
         local char = Fetch:Source(source):GetData("Character")
         if char then
-            Database.Game:findOneAndUpdate({
-                collection = "character_documents",
-                query = {
-                    _id = data,
-                    owner = { ['$ne'] = char:GetData("ID") },
-                    ['signed.ID'] = { ['$ne'] = char:GetData("ID") },
-                },
-                update = {
-                    ["$push"] = {
-                        signed = {
-                            Time = os.time(),
-                            ID = char:GetData("ID"),
-                            First = char:GetData("First"),
-                            Last = char:GetData("Last"),
-                            SID = char:GetData("SID"),
-                        },
-                    }
-                },
-                options = {
-                    returnDocument = 'after',
-                }
-            }, function(success, res)
-                cb(success)
+            local res = FetchPhoneDocument(data)
+            local alreadySigned = false
 
-                if res and res.sharedWith then
-                    for k, v in ipairs(res.sharedWith) do
-                        if v.ID then
-                            local char = Fetch:ID(v.ID)
-                            if char then
-                                TriggerClientEvent("Phone:Client:UpdateData", char:GetData("Source"), "myDocuments", res._id, res)
-                            end
+            for k, v in ipairs(res and res.signed or {}) do
+                if v.ID == char:GetData("ID") then
+                    alreadySigned = true
+                end
+            end
+
+            local success = false
+            if res and res.owner ~= char:GetData("ID") and not alreadySigned then
+                res.signed = res.signed or {}
+                table.insert(res.signed, {
+                    Time = os.time(),
+                    ID = char:GetData("ID"),
+                    First = char:GetData("First"),
+                    Last = char:GetData("Last"),
+                    SID = char:GetData("SID"),
+                })
+
+                success = StorePhoneDocument(data, res)
+            end
+
+            cb(success)
+
+            if res and res.sharedWith then
+                for k, v in ipairs(res.sharedWith) do
+                    if v.ID then
+                        local char = Fetch:ID(v.ID)
+                        if char then
+                            TriggerClientEvent("Phone:Client:UpdateData", char:GetData("Source"), "myDocuments", res._id, res)
                         end
                     end
-
-                    local char = Fetch:ID(res.owner)
-                    if char then
-                        TriggerClientEvent("Phone:Client:UpdateData", char:GetData("Source"), "myDocuments", res._id, res)
-                    end
                 end
-            end)
+
+                local char = Fetch:ID(res.owner)
+                if char then
+                    TriggerClientEvent("Phone:Client:UpdateData", char:GetData("Source"), "myDocuments", res._id, res)
+                end
+            end
         else
             cb(false)
         end
 	end)
 end)
+
+function FetchPhoneDocument(id)
+	return DecodePhoneRow(MySQL.single.await("SELECT * FROM character_documents WHERE id = ?", { id }), "document")
+end
+
+function StorePhoneDocument(id, doc)
+	return MySQL.query.await("UPDATE character_documents SET document = ? WHERE id = ?", {
+		json.encode(doc),
+		id,
+	}) ~= nil
+end
+
+function FetchPhoneDocumentsFor(charId)
+	return DecodePhoneRows(MySQL.query.await(
+		[[SELECT * FROM character_documents
+			WHERE owner = ?
+				OR JSON_CONTAINS(JSON_EXTRACT(document, '$.sharedWith'), JSON_OBJECT('ID', ?))]],
+		{ charId, charId }
+	), "document")
+end

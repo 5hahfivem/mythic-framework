@@ -1,109 +1,44 @@
 _MDT.Firearm = {
 	Search = function(self, term)
-		local p = promise.new()
-		Database.Game:find({
-			collection = "firearms",
-			query = {
-				["$and"] = {
-					{
-						["$or"] = {
-							{
-								["$expr"] = {
-									["$regexMatch"] = {
-										input = {
-											["$concat"] = { "$Owner.First", " ", "$Owner.Last" },
-										},
-										regex = term,
-										options = "i",
-									},
-								},
-							},
-							{
-								["$expr"] = {
-									["$regexMatch"] = {
-										input = {
-											["$toString"] = "$Owner.SID",
-										},
-										regex = term,
-										options = "i",
-									},
-								},
-							},
-							{
-								Serial = {
-									["$regex"] = term,
-									["$options"] = "i",
-								},
-							},
-						},
-					},
-					{
-						Scratched = false,
-					}
-				}
-			},
-		}, function(success, results)
-			if not success then
-				p:resolve(false)
-				return
-			end
-			p:resolve(results)
-		end)
+		local search = string.format("%%%s%%", term)
+		local rows = MySQL.query.await(
+			[[SELECT * FROM firearms
+				WHERE Scratched = 0 AND (ownerName LIKE ? OR CAST(ownerSID AS CHAR) LIKE ? OR Serial LIKE ?)]],
+			{ search, search, search }
+		)
+
 		GlobalState["MDT:Metric:Search"] = GlobalState["MDT:Metric:Search"] + 1
-		return Citizen.Await(p)
+
+		return DecodeMdtRows(rows, "firearm")
 	end,
 	View = function(self, id)
-		local p = promise.new()
-		Database.Game:findOne({
-			collection = "firearms",
-			query = {
-				_id = id,
-			},
-		}, function(success, results)
-			if not success then
-				p:resolve(false)
-				return
-			end
-			p:resolve(results[1])
-		end)
-		return Citizen.Await(p)
+		return DecodeMdtRow(MySQL.single.await("SELECT * FROM firearms WHERE id = ?", { id }), "firearm")
 	end,
 	Flags = {
 		Add = function(self, id, data)
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "firearms",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$push"] = {
-						Flags = data,
-					},
-				},
-			}, function(success, result)
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			local firearm = MDT.Firearm:View(id)
+			if not firearm then
+				return false
+			end
+
+			firearm.Flags = firearm.Flags or {}
+			table.insert(firearm.Flags, data)
+
+			return StoreMdtFirearm(id, firearm)
 		end,
 		Remove = function(self, id, flag)
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "firearms",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$pull"] = {
-						Flags = {
-							Type = flag,
-						},
-					},
-				},
-			}, function(success, result)
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			local firearm = MDT.Firearm:View(id)
+			if not firearm or not firearm.Flags then
+				return false
+			end
+
+			for k = #firearm.Flags, 1, -1 do
+				if firearm.Flags[k].Type == flag then
+					table.remove(firearm.Flags, k)
+				end
+			end
+
+			return StoreMdtFirearm(id, firearm)
 		end,
 	},
 }
@@ -141,3 +76,10 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 		end
 	end)
 end)
+
+function StoreMdtFirearm(id, firearm)
+	return MySQL.query.await("UPDATE firearms SET firearm = ? WHERE id = ?", {
+		json.encode(firearm),
+		id,
+	}) ~= nil
+end

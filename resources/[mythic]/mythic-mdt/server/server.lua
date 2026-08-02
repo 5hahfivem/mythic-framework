@@ -24,7 +24,6 @@ local sentencedSuspects = {}
 AddEventHandler("MDT:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
 	Utils = exports["mythic-base"]:FetchComponent("Utils")
@@ -43,7 +42,6 @@ end
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("MDT", {
 		"Fetch",
-		"Database",
 		"Callbacks",
 		"Logger",
 		"Utils",
@@ -231,152 +229,101 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 			end
 
 			if data.data.suspect.SID and not sentencedSuspects[data.report][data.data.suspect.SID] then
-				Database.Game:updateOne({
-					collection = "mdt_reports",
-					query = {
-						ID = data.report,
-					}, 
-					update = {
-						['$set'] = {
-							['suspects.$[sus].sentence'] = {
-								time = os.time() * 1000,
-								fine = data.fine,
-								jail = data.jail,
-								months = data.jail,
-								revoked = data.sentence.revoke,
-								doc = data.sentence.doc,
-								reduction = {
-									type = data.sentence.type,
-									value = data.sentence.value,
-								},
-								parole = data.parole,
-								sentencedBy = {
-									SID = char:GetData('SID'),
-									First = char:GetData('First'),
-									Last = char:GetData('Last'),
-									Callsign = char:GetData('Callsign'),
-								}
-							},
-						}
+				local sentence = {
+					time = os.time() * 1000,
+					fine = data.fine,
+					jail = data.jail,
+					months = data.jail,
+					revoked = data.sentence.revoke,
+					doc = data.sentence.doc,
+					reduction = {
+						type = data.sentence.type,
+						value = data.sentence.value,
 					},
-					options = {
-						arrayFilters = {
-							{ ['sus.suspect.SID'] = data.data.suspect.SID }
-						},
-						upsert = false,
+					parole = data.parole,
+					sentencedBy = {
+						SID = char:GetData('SID'),
+						First = char:GetData('First'),
+						Last = char:GetData('Last'),
+						Callsign = char:GetData('Callsign'),
 					}
-				}, function(success, updated)
-					if success then
-						sentencedSuspects[data.report][data.data.suspect.SID] = true
+				}
 
-						Database.Game:updateOne({
-							collection = "character_convictions",
-							query = {
-								SID = data.data.suspect.SID,
-							},
-							update = {
-								['$push'] = {
-									Charges = {
-										['$each'] = data.data.charges,
-									},
-									Convictions = {
-										time = os.time() * 1000,
-										report = data.report,
-										fine = data.fine,
-										jail = data.jail,
-										parole = data.parole,
-									},
-								}
-							},
-							options = {
-								upsert = true,
-							}
-						})
-	
-						local p = promise.new()
-	
-						if data.parole ~= nil then
-							Database.Game:updateOne({
-								collection = "characters",
-								query = {
-									SID = data.data.suspect.SID,
-								},
-								update = {
-									["$set"] = {
-										Parole = data.parole,
-									},
-								},
-							}, function(success)
-								p:resolve(success)
-							end)
+				local success = SentenceReportSuspect(data.report, data.data.suspect.SID, sentence)
+
+				if success then
+					sentencedSuspects[data.report][data.data.suspect.SID] = true
+
+					AddCharacterConvictions(data.data.suspect.SID, data.data.charges, {
+						time = os.time() * 1000,
+						report = data.report,
+						fine = data.fine,
+						jail = data.jail,
+						parole = data.parole,
+					})
+
+					local p = promise.new()
+
+					if data.parole ~= nil then
+						p:resolve(SetCharacterField(data.data.suspect.SID, 'Parole', data.parole))
+					end
+
+					Citizen.Await(p)
+
+					if data.sentence.revoke then
+						local needsUpdate = false
+						local licenseUpdate = {
+							['$set'] = {}
+						}
+						for k, v in pairs(data.sentence.revoke) do
+							if v then
+								needsUpdate = true
+								if k == 'drivers' then
+									licenseUpdate['$set']['Licenses.Drivers.Active'] = false
+									licenseUpdate['$set']['Licenses.Drivers.Suspended'] = true
+								elseif k == 'weapons' then
+									licenseUpdate['$set']['Licenses.Weapons.Active'] = false
+									licenseUpdate['$set']['Licenses.Weapons.Suspended'] = true
+								elseif k == 'hunting' then
+									licenseUpdate['$set']['Licenses.Hunting.Active'] = false
+									licenseUpdate['$set']['Licenses.Hunting.Suspended'] = true
+								elseif k == 'fishing' then
+									licenseUpdate['$set']['Licenses.Fishing.Active'] = false
+									licenseUpdate['$set']['Licenses.Fishing.Suspended'] = true
+								end
+							end
 						end
 
-						Citizen.Await(p)
+						if needsUpdate then
+							local p2 = promise.new()
+							local results = ApplyCharacterLicenseUpdate(data.data.suspect.SID, licenseUpdate)
 
-						if data.sentence.revoke then
-							local needsUpdate = false
-							local licenseUpdate = {
-								['$set'] = {}
-							}
-							for k, v in pairs(data.sentence.revoke) do
-								if v then
-									needsUpdate = true
-									if k == 'drivers' then
-										licenseUpdate['$set']['Licenses.Drivers.Active'] = false
-										licenseUpdate['$set']['Licenses.Drivers.Suspended'] = true
-									elseif k == 'weapons' then
-										licenseUpdate['$set']['Licenses.Weapons.Active'] = false
-										licenseUpdate['$set']['Licenses.Weapons.Suspended'] = true
-									elseif k == 'hunting' then
-										licenseUpdate['$set']['Licenses.Hunting.Active'] = false
-										licenseUpdate['$set']['Licenses.Hunting.Suspended'] = true
-									elseif k == 'fishing' then
-										licenseUpdate['$set']['Licenses.Fishing.Active'] = false
-										licenseUpdate['$set']['Licenses.Fishing.Suspended'] = true
+							if results and results.SID then
+								if results and results.Licenses then
+									local plyr = Fetch:SID(results.SID)
+									if plyr then
+										local char = plyr:GetData('Character')
+										if char then
+											char:SetData('Licenses', results.Licenses)
+										end
 									end
 								end
 							end
-	
-							if needsUpdate then
-								local p2 = promise.new()
-								Database.Game:findOneAndUpdate({
-									collection = "characters",
-									query = {
-										SID = data.data.suspect.SID,
-									},
-									update = licenseUpdate,
-									options = {
-										returnDocument = 'after',
-									}
-								}, function(success, results)
-									if success and results and results.SID then
-										if results and results.Licenses then
-											local plyr = Fetch:SID(results.SID)
-											if plyr then
-												local char = plyr:GetData('Character')
-												if char then
-													char:SetData('Licenses', results.Licenses)
-												end
-											end
-										end
-									end
-	
-									p:resolve(success)
-								end)
-	
-								Citizen.Await(p2)
-							end
+
+							p:resolve(success)
+
+							Citizen.Await(p2)
 						end
-	
-						GlobalState["MDT:Metric:Arrests"] = GlobalState["MDT:Metric:Arrests"] + 1
-	
-						cb(true)
-						_editingReports[data.report] = nil
-					else
-						_editingReports[data.report] = nil
-						cb(false)
 					end
-				end)
+
+					GlobalState["MDT:Metric:Arrests"] = GlobalState["MDT:Metric:Arrests"] + 1
+
+					cb(true)
+					_editingReports[data.report] = nil
+				else
+					_editingReports[data.report] = nil
+					cb(false)
+				end
 			else
 				cb(false)
 			end
@@ -422,29 +369,20 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 					},
 				}
 
-				Database.Game:findOneAndUpdate({
-					collection = "characters",
-					query = {
-						SID = data.SID,
-					},
-					update = licenseUpdate,
-					options = {
-						returnDocument = 'after',
-					}
-				}, function(success, results)
-					if success and results and results.SID and results.Licenses then
-						local plyr = Fetch:SID(results.SID)
-						if plyr then
-							local char = plyr:GetData('Character')
-							if char then
-								char:SetData('Licenses', results.Licenses)
-							end
+				local results = ApplyCharacterLicenseUpdate(data.SID, licenseUpdate)
+
+				if results and results.SID and results.Licenses then
+					local plyr = Fetch:SID(results.SID)
+					if plyr then
+						local char = plyr:GetData('Character')
+						if char then
+							char:SetData('Licenses', results.Licenses)
 						end
-						cb(results.Licenses)
-					else
-						cb(false)
 					end
-				end)
+					cb(results.Licenses)
+				else
+					cb(false)
+				end
 			else
 				cb(false)
 			end
@@ -457,40 +395,31 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 		local char = Fetch:Source(source):GetData("Character")
 
 		if char and CheckMDTPermissions(source, true) then
-			Database.Game:findOne({
-				collection = "character_convictions",
-				query = {
-					SID = data.SID,
-				},
-			}, function(success, results)
-				if success and results and #results > 0 and results[1]?.SID then
-					local old = results[1]
+			local old = DecodeMdtRow(
+				MySQL.single.await('SELECT * FROM character_convictions WHERE SID = ?', { data.SID }),
+				'convictions'
+			)
 
-					old._id = nil
-					old.Time = os.time()
-					old.ClearedBy = char:GetData("SID")
+			if old and old.SID then
+				old._id = nil
+				old.Time = os.time()
+				old.ClearedBy = char:GetData("SID")
 
-					Database.Game:insertOne({
-						collection = "character_convictions_expunged",
-						document = old,
-					}, function(success, result, insertId)
-						if success then
-							Database.Game:deleteOne({
-								collection = "character_convictions",
-								query = {
-									SID = data.SID,
-								},
-							}, function(success, deleted)
-								cb(success)
-							end)
-						else
-							cb(false)
-						end
-					end)
-				else
-					cb(false)
+				local expunged = MySQL.insert.await(
+					'INSERT INTO character_convictions_expunged (SID, convictions) VALUES(?, ?)',
+					{ data.SID, json.encode(old) }
+				)
+
+				do
+					if expunged ~= nil then
+						cb(MySQL.query.await('DELETE FROM character_convictions WHERE SID = ?', { data.SID }) ~= nil)
+					else
+						cb(false)
+					end
 				end
-			end)
+			else
+				cb(false)
+			end
 		else
 			cb(false)
 		end

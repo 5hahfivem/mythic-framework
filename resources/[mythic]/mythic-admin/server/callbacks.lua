@@ -1,21 +1,15 @@
 function GetSpawnLocations()
-    local p = promise.new()
+    local results = MySQL.query.await('SELECT * FROM locations WHERE Type = ?', { 'spawn' })
 
-    Database.Game:find({
-        collection = 'locations',
-        query = {
-            Type = 'spawn'
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results)
-        else
-            p:resolve(false)
-        end
-    end)
+    if #results == 0 then
+        return false
+    end
 
-    local res = Citizen.Await(p)
-    return res
+    for k, location in ipairs(results) do
+        results[k].Coords = json.decode(location.Coords)
+    end
+
+    return results
 end
 
 function RegisterCallbacks()

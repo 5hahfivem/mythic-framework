@@ -97,37 +97,25 @@ AddEventHandler("Laptop:Server:RegisterCallbacks", function()
             local perm = char:GetData("LaptopPermissions")
 
             if perm["lsunderground"] and perm["lsunderground"]["admin"] then
-                Database.Game:find({
-                    collection = "characters",
-                    query = {
-                        LSUNDGBan = {
-                            ["$exists"] = true,
-                        }
-                    },
-                    options = {
-                        projection = {
-                            SID = 1,
-                            First = 1,
-                            Last = 1,
-                            Alias = 1,
-                            LSUNDGBan = 1,
-                        }
-                    }
+                local rows = MySQL.query.await(
+                    [[SELECT `character` FROM characters WHERE JSON_EXTRACT(`character`, '$.LSUNDGBan') IS NOT NULL]],
+                    {}
+                )
 
-                }, function(success, results)
-                    if success and results then
-                        local cunts = {}
-                        for k, v in ipairs(results) do
-                            v.RacingAlias = v.Alias?.redline
+                local cunts = {}
+                for k, r in ipairs(rows) do
+                    local v = json.decode(r.character)
+                    table.insert(cunts, {
+                        SID = v.SID,
+                        First = v.First,
+                        Last = v.Last,
+                        Alias = v.Alias,
+                        LSUNDGBan = v.LSUNDGBan,
+                        RacingAlias = v.Alias?.redline,
+                    })
+                end
 
-                            table.insert(cunts, v)
-                        end
-
-                        cb(cunts)
-                    else
-                        cb(false)
-                    end
-                end)
+                cb(cunts)
             else
                 cb(false)
             end
@@ -142,32 +130,25 @@ AddEventHandler("Laptop:Server:RegisterCallbacks", function()
             local perm = char:GetData("LaptopPermissions")
 
             if perm["lsunderground"] and perm["lsunderground"]["admin"] then
-                Database.Game:updateOne({
-                    collection = "characters",
-                    query = {
-                        SID = data.SID,
-                    },
-                    update = {
-                        ["$push"] = {
-                            LSUNDGBan = "Boosting",
-                        }
-                    }
-                }, function(success, result)
-                    if success and result > 0 then
-                        local target = Fetch:SID(data.SID)
-                        if target then
-                            local targetChar = target:GetData("Character")
-                            if targetChar then
-                                targetChar:SetData("LSUNDGBan", {
-                                    "Boosting",
-                                })
-                            end
+                local result = MySQL.query.await(
+                    [[UPDATE characters SET `character` = JSON_SET(`character`, '$.LSUNDGBan', JSON_ARRAY('Boosting')) WHERE SID = ?]],
+                    { data.SID }
+                )
+
+                if result ~= nil then
+                    local target = Fetch:SID(data.SID)
+                    if target then
+                        local targetChar = target:GetData("Character")
+                        if targetChar then
+                            targetChar:SetData("LSUNDGBan", {
+                                "Boosting",
+                            })
                         end
-                        cb(true)
-                    else
-                        cb(false)
                     end
-                end)
+                    cb(true)
+                else
+                    cb(false)
+                end
             else
                 cb(false)
             end
@@ -182,31 +163,24 @@ AddEventHandler("Laptop:Server:RegisterCallbacks", function()
             local perm = char:GetData("LaptopPermissions")
 
             if perm["lsunderground"] and perm["lsunderground"]["admin"] then
-                Database.Game:updateOne({
-                    collection = "characters",
-                    query = {
-                        SID = data.SID,
-                    },
-                    update = {
-                        ["$unset"] = {
-                            LSUNDGBan = true,
-                        }
-                    }
-                }, function(success, result)
-                    if success and result > 0 then
-                        local target = Fetch:SID(data.SID)
-                        if target then
-                            local targetChar = target:GetData("Character")
-                            if targetChar then
-                                targetChar:SetData("LSUNDGBan", nil)
-                            end
-                        end
+                local result = MySQL.query.await(
+                    [[UPDATE characters SET `character` = JSON_REMOVE(`character`, '$.LSUNDGBan') WHERE SID = ?]],
+                    { data.SID }
+                )
 
-                        cb(true)
-                    else
-                        cb(false)
+                if result ~= nil then
+                    local target = Fetch:SID(data.SID)
+                    if target then
+                        local targetChar = target:GetData("Character")
+                        if targetChar then
+                            targetChar:SetData("LSUNDGBan", nil)
+                        end
                     end
-                end)
+
+                    cb(true)
+                else
+                    cb(false)
+                end
             else
                 cb(false)
             end

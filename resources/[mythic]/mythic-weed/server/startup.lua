@@ -5,21 +5,20 @@ function Startup()
 	end
 	_started = true
 
-	Database.Game:find({
-		collection = "weed",
-	}, function(success, results)
-		local count = 0
-		for k, v in ipairs(results) do
-			if os.time() - v.planted <= Config.Lifetime then
-				_plants[v._id] = {
-					plant = v,
-					stage = getStageByPct(v.growth),
-				}
-				count = count + 1
-			end
+	local results = MySQL.query.await("SELECT * FROM weed", {})
+	local count = 0
+	for k, v in ipairs(results) do
+		if os.time() - v.planted <= Config.Lifetime then
+			local plant = json.decode(v.plant)
+			plant._id = v.id
+			_plants[v.id] = {
+				plant = plant,
+				stage = getStageByPct(plant.growth),
+			}
+			count = count + 1
 		end
-		Logger:Trace("Weed", string.format("Loaded ^2%s^7 Weed Plants", count), { console = true })
-	end)
+	end
+	Logger:Trace("Weed", string.format("Loaded ^2%s^7 Weed Plants", count), { console = true })
 
 	Reputation:Create("weed", "Weed", {
 		{ label = "Rank 1", value = 3000 },

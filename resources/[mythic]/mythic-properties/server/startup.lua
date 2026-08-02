@@ -4,8 +4,15 @@ _properties = {}
 _insideProperties = {}
 
 function doPropertyThings(property)
-	property.id = property._id
 	property.locked = property.locked or true
+
+	property.location = property.location and json.decode(property.location) or nil
+	property.upgrades = property.upgrades and json.decode(property.upgrades) or nil
+	property.keys = property.keys and json.decode(property.keys) or nil
+	property.data = property.data and json.decode(property.data) or nil
+	property.owner = property.owner and json.decode(property.owner) or false
+	property.sold = property.sold == 1
+	property.foreclosed = property.foreclosed == 1
 
 	if property.location then
 		for k, v in pairs(property.location) do
@@ -25,38 +32,24 @@ function Startup()
 		return
 	end
 
-	Database.Game:find({
-		collection = "properties",
-	}, function(success, results)
-		if not success then
-			return
-		end
-		Logger:Trace("Properties", "Loaded ^2" .. #results .. "^7 Properties", { console = true })
+	local results = MySQL.query.await("SELECT * FROM properties", {})
 
-		for k, v in ipairs(results) do
-			local p = doPropertyThings(v)
+	Logger:Trace("Properties", "Loaded ^2" .. #results .. "^7 Properties", { console = true })
 
-			_properties[v._id] = p
-		end
-	end)
+	for k, v in ipairs(results) do
+		_properties[v.id] = doPropertyThings(v)
+	end
 
 	_ran = true
 end
 
 RegisterNetEvent("Properties:RefreshProperties", function()
-    Database.Game:find({
-        collection = "properties",
-    }, function(success, results)
-        if not success then
-            return
-        end
-        Logger:Warn("Properties", "Loaded ^2" .. #results .. "^7 Properties", { console = true })
+    local results = MySQL.query.await("SELECT * FROM properties", {})
 
-        for k, v in ipairs(results) do
-            local p = doPropertyThings(v)
-            _properties[v._id] = p
-        end
-        TriggerLatentClientEvent("Properties:Client:Load", -1, 800000, _properties)
+    Logger:Warn("Properties", "Loaded ^2" .. #results .. "^7 Properties", { console = true })
 
-    end)
+    for k, v in ipairs(results) do
+        _properties[v.id] = doPropertyThings(v)
+    end
+    TriggerLatentClientEvent("Properties:Client:Load", -1, 800000, _properties)
 end)

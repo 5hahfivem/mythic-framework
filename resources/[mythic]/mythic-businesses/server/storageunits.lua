@@ -223,26 +223,20 @@ function StorageUnitStartup()
     if not _ran then
         _ran = true
 
-        Database.Game:find({
-            collection = "storage_units",
-            query = {},
-        }, function(success, results)
-            if not success then
-                return
-            end
-            Logger:Trace("StorageUnits", "Loaded ^2" .. #results .. "^7 Storage Units", { console = true })
-            local unitIds = {}
-            for k, v in ipairs(results) do
-                unitPasscodes[v._id] = v.passcode
+        local results = MySQL.query.await("SELECT * FROM storage_units", {})
 
-                local unit = FormatStorageUnit(v)
-                table.insert(unitIds, unit.id)
+        Logger:Trace("StorageUnits", "Loaded ^2" .. #results .. "^7 Storage Units", { console = true })
+        local unitIds = {}
+        for k, v in ipairs(results) do
+            unitPasscodes[v.id] = v.passcode
 
-                GlobalState[string.format("StorageUnit:%s", unit.id)] = unit
-            end
+            local unit = FormatStorageUnit(v)
+            table.insert(unitIds, unit.id)
 
-            GlobalState["StorageUnits"] = unitIds
-        end)
+            GlobalState[string.format("StorageUnit:%s", unit.id)] = unit
+        end
+
+        GlobalState["StorageUnits"] = unitIds
     end
 end
 
@@ -251,8 +245,6 @@ _STORAGEUNITS = {
         if level > 3 or level < 0 then
             return false
         end
-
-        local p = promise.new()
 
         local doc = {
             label = label,
@@ -268,29 +260,35 @@ _STORAGEUNITS = {
             passcode = "0000",
         }
 
-        Database.Game:insertOne({
-            collection = "storage_units",
-            document = doc,
-        }, function(success, result, insertedIds)
-            if success then
-                doc.id = insertedIds[1]
-                doc.location = location
+        local insertedId = MySQL.insert.await(
+            "INSERT INTO storage_units (label, owner, level, location, managedBy, lastAccessed, passcode) VALUES(?, ?, ?, ?, ?, ?, ?)",
+            {
+                doc.label,
+                doc.owner or 0,
+                doc.level,
+                json.encode(doc.location),
+                doc.managedBy,
+                0,
+                doc.passcode,
+            }
+        )
 
-                local unitIds = GlobalState["StorageUnits"]
-                table.insert(unitIds, doc.id)
-                GlobalState["StorageUnits"] = unitIds
+        if insertedId ~= nil then
+            doc.id = insertedId
+            doc.location = location
 
-                GlobalState[string.format("StorageUnit:%s", doc.id)] = doc
+            local unitIds = GlobalState["StorageUnits"]
+            table.insert(unitIds, doc.id)
+            GlobalState["StorageUnits"] = unitIds
 
-                unitPasscodes[doc.id] = "0000"
+            GlobalState[string.format("StorageUnit:%s", doc.id)] = doc
 
-                p:resolve(doc.id)
-            else
-                p:resolve(false)
-            end
-        end)
+            unitPasscodes[doc.id] = "0000"
 
-        return Citizen.Await(p)
+            return doc.id
+        end
+
+        return false
     end,
     Update = function(self, id, key, value, skipRefresh)
         if not id or not GlobalState[string.format("StorageUnit:%s", id)] then
@@ -298,89 +296,67 @@ _STORAGEUNITS = {
         end
 
         local p = promise.new()
-        Database.Game:updateOne({
-            collection = "storage_units",
-            query = {
-                _id = id,
-            },
-            update = {
-                ["$set"] = {
-                    [key] = value,
-                },
-            },
-        }, function(success, results)
-            if success and not skipRefresh then
-                if key ~= "passcode" then
-                    local unit = GlobalState[string.format("StorageUnit:%s", id)]
-                    if unit then
-                        unit[key] = value
-                        GlobalState[string.format("StorageUnit:%s", id)] = unit
-                    end
-                else
-                    unitPasscodes[id] = value
-                end
-            end
+        local success = MySQL.query.await(
+            string.format("UPDATE storage_units SET `%s` = ? WHERE id = ?", key),
+            { value, id }
+        ) ~= nil
 
-            p:resolve(success)
-        end)
+        if success and not skipRefresh then
+            if key ~= "passcode" then
+                local unit = GlobalState[string.format("StorageUnit:%s", id)]
+                if unit then
+                    unit[key] = value
+                    GlobalState[string.format("StorageUnit:%s", id)] = unit
+                end
+            else
+                unitPasscodes[id] = value
+            end
+        end
+
+        p:resolve(success)
         return Citizen.Await(p)
     end,
     Delete = function(self, id)
         local p = promise.new()
-        Database.Game:deleteOne({
-            collection = "storage_units",
-            query = {
-                _id = id,
-            },
-        }, function(success, result)
-            if success then
-                local newUnitIds = {}
-                for k, v in ipairs(GlobalState["StorageUnits"]) do
-                    if v ~= id then
-                        table.insert(newUnitIds, v)
-                    end
-                end
+        local success = MySQL.query.await("DELETE FROM storage_units WHERE id = ?", { id }) ~= nil
 
-                GlobalState["StorageUnits"] = newUnitIds
-                GlobalState[string.format("StorageUnit:%s", id)] = nil
+        if success then
+            local newUnitIds = {}
+            for k, v in ipairs(GlobalState["StorageUnits"]) do
+                if v ~= id then
+                    table.insert(newUnitIds, v)
+                end
             end
-            p:resolve(success)
-        end)
+
+            GlobalState["StorageUnits"] = newUnitIds
+            GlobalState[string.format("StorageUnit:%s", id)] = nil
+        end
+        p:resolve(success)
 
         return Citizen.Await(p)
     end,
     Sell = function(self, id, owner, seller)
         local p = promise.new()
-        Database.Game:updateOne({
-            collection = "storage_units",
-            query = {
-                _id = id,
-            },
-            update = {
-                ["$set"] = {
-                    owner = owner,
-                    soldBy = seller,
-                    soldAt = os.time(),
-                    lastAccessed = os.time(),
-                },
-            },
-        }, function(success, results)
-            if success then
-                local unit = GlobalState[string.format("StorageUnit:%s", id)]
-                if unit then
-                    unit["owner"] = owner
-                    unit["soldBy"] = seller
-                    unit["soldAt"] = os.time()
-                    unit["lastAccessed"] = os.time()
+        local success = MySQL.query.await(
+            "UPDATE storage_units SET owner = ?, soldBy = ?, soldAt = ?, lastAccessed = ? WHERE id = ?",
+            { owner, seller, os.time(), os.time(), id }
+        ) ~= nil
 
-                    unitLastAccessed[unit.id] = os.time()
+        if success then
+            local unit = GlobalState[string.format("StorageUnit:%s", id)]
+            if unit then
+                unit["owner"] = owner
+                unit["soldBy"] = seller
+                unit["soldAt"] = os.time()
+                unit["lastAccessed"] = os.time()
 
-                    GlobalState[string.format("StorageUnit:%s", id)] = unit
-                end
+                unitLastAccessed[unit.id] = os.time()
+
+                GlobalState[string.format("StorageUnit:%s", id)] = unit
             end
+        end
 
-            p:resolve(success)
-        end)
+        p:resolve(success)
         return Citizen.Await(p)
     end,
     Get = function(self, id)
@@ -435,8 +411,8 @@ AddEventHandler("Proxy:Shared:RegisterReady", function(component)
 end)
 
 function FormatStorageUnit(data)
-    data.id = data._id
-    data.location = vector3(data.location.x + 0.0, data.location.y + 0.0, data.location.z + 0.0)
+    local location = json.decode(data.location)
+    data.location = vector3(location.x + 0.0, location.y + 0.0, location.z + 0.0)
     data.passcode = nil
 
     return data
@@ -444,17 +420,7 @@ end
 
 function SaveStorageUnitLastAccess()
     for k, v in pairs(unitLastAccessed) do
-        Database.Game:updateOne({
-            collection = "storage_units",
-            query = {
-                _id = k,
-            },
-            update = {
-                ["$set"] = {
-                    lastAccessed = v,
-                },
-            },
-        })
+        MySQL.query.await("UPDATE storage_units SET lastAccessed = ? WHERE id = ?", { v, k })
     end
 end
 

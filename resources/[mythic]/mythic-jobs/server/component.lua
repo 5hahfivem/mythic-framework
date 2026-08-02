@@ -111,14 +111,9 @@ _JOBS = {
 			return true
 		else
 			local p = promise.new()
-			Database.Game:findOne({
-				collection = 'characters',
-				query = {
-					SID = stateId,
-				}
-			}, function(success, results)
-				if success and #results > 0 then
-					local charData = results[1]
+			do
+				local charData = FetchCharacterBySID(stateId)
+				if charData then
 					local charJobData = charData.Jobs
 					if not charJobData then charJobData = {}; end
 
@@ -135,23 +130,11 @@ _JOBS = {
 
 					table.insert(charJobData, newJob)
 
-					Database.Game:updateOne({
-						collection = 'characters',
-						query = {
-							SID = stateId,
-						},
-						update = {
-							['$set'] = {
-								Jobs = charJobData,
-							}
-						}
-					}, function(success, updated)
-						if success and updated > 0 then
-							p:resolve(true)
-						else
-							p:resolve(false)
-						end
-					end)
+					if StoreCharacterJobs(stateId, charJobData) then
+						p:resolve(true)
+					else
+						p:resolve(false)
+					end
 				else
 					p:resolve(false)
 				end
@@ -200,14 +183,9 @@ _JOBS = {
 			end
 		else
 			local p = promise.new()
-			Database.Game:findOne({
-				collection = 'characters',
-				query = {
-					SID = stateId,
-				}
-			}, function(success, results)
-				if success and #results > 0 then
-					local charData = results[1]
+			do
+				local charData = FetchCharacterBySID(stateId)
+				if charData then
 					local charJobData = charData.Jobs
 					if charJobData then
 						for k, v in ipairs(charJobData) do
@@ -218,23 +196,11 @@ _JOBS = {
 						end
 
 						if found then
-							Database.Game:updateOne({
-								collection = 'characters',
-								query = {
-									SID = stateId,
-								},
-								update = {
-									['$set'] = {
-										Jobs = charJobData,
-									}
-								}
-							}, function(success, updated)
-								if success and updated > 0 then
-									p:resolve(true)
-								else
-									p:resolve(false)
-								end
-							end)
+							if StoreCharacterJobs(stateId, charJobData) then
+								p:resolve(true)
+							else
+								p:resolve(false)
+							end
 						else
 							p:resolve(false)
 						end
@@ -617,20 +583,15 @@ _JOBS = {
 						},
 					}
 
-					Database.Game:insertOne({
-						collection = 'jobs',
-						document = document,
-					}, function(success, inserted)
-						if success and inserted > 0 then
-							RefreshAllJobData(document.Id)
+					if InsertJob(document) ~= nil then
+						RefreshAllJobData(document.Id)
 
-							Jobs:GiveJob(ownerSID, document.Id, false, 'owner')
+						Jobs:GiveJob(ownerSID, document.Id, false, 'owner')
 
-							p:resolve(document)
-						else
-							p:resolve(false)
-						end
-					end)
+						p:resolve(document)
+					else
+						p:resolve(false)
+					end
 
 					local res = Citizen.Await(p)
 					return res
@@ -671,16 +632,16 @@ _JOBS = {
 				end
 
 				local p = promise.new()
-				Database.Game:updateOne({
-					collection = 'jobs',
-					query = {
-						Id = jobId,
-					},
-					update = {
-						['$set'] = actualSettingData,
-					},
-				}, function(success, res)
-					if success then
+				local job = FetchJob(jobId)
+
+				if job then
+					for k, v in pairs(actualSettingData) do
+						job[k] = v
+					end
+				end
+
+				do
+					if job and StoreJob(job) then
 						RefreshAllJobData(jobId)
 
 						if actualSettingData.Name then
@@ -709,33 +670,21 @@ _JOBS = {
 			Edit = function(self, jobId, workplaceId, newWorkplaceName)
 				if Jobs:DoesExist(jobId, workplaceId) then
 					local p = promise.new()
-					Database.Game:updateOne({
-						collection = 'jobs',
-						query = {
-							Type = 'Government',
-							Id = jobId,
-							['Workplaces.Id'] = workplaceId,
-						},
-						update = {
-							['$set'] = {
-								['Workplaces.$[workplace].Name'] = newWorkplaceName,
-							},
-						},
-						options = {
-							arrayFilters = { 
-								{ ['workplace.Id'] = workplaceId }
-							},
-						},
-					}, function(success, res)
-						if success then
-							RefreshAllJobData(jobId)
-							Jobs.Management.Employees:UpdateAllWorkplace(jobId, workplaceId, newWorkplaceName)
+					local job = FetchJob(jobId)
+					local workplace = job and job.Workplaces and FindById(job.Workplaces, workplaceId)
 
-							p:resolve(true)
-						else
-							p:resolve(false)
-						end
-					end)
+					if workplace then
+						workplace.Name = newWorkplaceName
+					end
+
+					if workplace ~= nil and StoreJob(job) then
+						RefreshAllJobData(jobId)
+						Jobs.Management.Employees:UpdateAllWorkplace(jobId, workplaceId, newWorkplaceName)
+
+						p:resolve(true)
+					else
+						p:resolve(false)
+					end
 
 					local res = Citizen.Await(p)
 					return {
@@ -762,70 +711,28 @@ _JOBS = {
 					end
 
 					if not Jobs:DoesExist(jobId, workplaceId, gradeId) then
-						local query = {}
-						local update = {}
-						local options = {}
-						
 						local gradeData = {
 							Id = gradeId,
 							Name = gradeName,
 							Level = gradeLevel,
 							Permissions = gradePermissions or {},
 						}
-	
-						if workplaceId then
-							query = {
-								Type = 'Government',
-								Id = jobId,
-								['Workplaces.Id'] = workplaceId,
-							}
-	
-							update = {
-								['$push'] = {
-									['Workplaces.$[workplace].Grades'] = gradeData,
-								}
-							}
-	
-							options = {
-								arrayFilters = {
-									{
-										['workplace.Id'] = workplaceId,
-									},
-								},
-								multi = true,
-							}
-						else
-							query = {
-								Type = 'Company',
-								Id = jobId,
-							}
-	
-							update = {
-								['$push'] = {
-									Grades = gradeData,
-								}
-							}
-	
-							options = {
-								multi = true
-							}
+
+						local job = FetchJob(jobId)
+						local grades = job and GetJobGrades(job, workplaceId)
+
+						if grades then
+							table.insert(grades, gradeData)
 						end
-	
-						Database.Game:updateOne({
-							collection = 'jobs',
-							query = query,
-							update = update,
-							options = options,
-						}, function(success, updated)
-							if success then
-								RefreshAllJobData(jobId)
-	
-								p:resolve(true)
-							else
-								p:resolve(false)
-							end
-						end)
-	
+
+						if grades and StoreJob(job) then
+							RefreshAllJobData(jobId)
+
+							p:resolve(true)
+						else
+							p:resolve(false)
+						end
+
 						local res = Citizen.Await(p)
 						return {
 							success = res,
@@ -859,65 +766,26 @@ _JOBS = {
 							["Workplaces.Grades.Id"] = gradeId,
 						}
 
-						update = {
-							['$set'] = {}
-						}
+						local job = FetchJob(jobId)
+					local grades = job and GetJobGrades(job, workplaceId)
+					local grade = grades and FindById(grades, gradeId)
 
+					if grade then
 						for k, v in pairs(settingData) do
 							if k ~= 'Id' then
-								local updateKey = string.format('Workplaces.$[workplace].Grades.$[grade].%s', k)
-								update['$set'][updateKey] = v
+								grade[k] = v
 							end
 						end
-
-						options = {
-							arrayFilters = {
-								{
-									['workplace.Id'] = workplaceId,
-								},
-								{
-									["grade.Id"] = gradeId,
-								}
-							},
-						}
-					else
-						query = {
-							Type = 'Company',
-							Id = jobId,
-							['Grades.Id'] = gradeId,
-						}
-
-						update = {
-							['$set'] = {}
-						}
-
-						for k, v in pairs(settingData) do
-							if k ~= 'Id' then
-								local updateKey = string.format('Grades.$[grade].%s', k)
-								update['$set'][updateKey] = v
-							end
-						end
-
-						options = {
-							arrayFilters = { { ['grade.Id'] = gradeId } },
-						}
 					end
 
-					Database.Game:updateOne({
-						collection = 'jobs',
-						query = query,
-						update = update,
-						options = options,
-					}, function(success, updated)
-						if success then
-							RefreshAllJobData(jobId)
-							Jobs.Management.Employees:UpdateAllGrade(jobId, workplaceId, gradeId, settingData)
+					if grade and StoreJob(job) then
+						RefreshAllJobData(jobId)
+						Jobs.Management.Employees:UpdateAllGrade(jobId, workplaceId, gradeId, settingData)
 
-							p:resolve(true)
-						else
-							p:resolve(false)
-						end
-					end)
+						p:resolve(true)
+					else
+						p:resolve(false)
+					end
 
 					local res = Citizen.Await(p)
 					return {
@@ -936,66 +804,27 @@ _JOBS = {
 				if #peopleWithJobGrade <= 0 then
 					if Jobs:DoesExist(jobId, workplaceId, gradeId) then
 						local p = promise.new()
-						local query = {}
-						local update = {}
-						local options = {}
 
-						if workplaceId then
-							query = {
-								Type = 'Government',
-								Id = jobId,
-								['Workplaces.Id'] = workplaceId,
-							}
+						local job = FetchJob(jobId)
+						local grades = job and GetJobGrades(job, workplaceId)
+						local removed = false
 
-							update = {
-								['$pull'] = {
-									['Workplaces.$[workplace].Grades'] = {
-										Id = gradeId,
-									}
-								}
-							}
-
-							options = {
-								arrayFilters = {
-									{
-										['workplace.Id'] = workplaceId,
-									},
-								},
-								multi = true,
-							}
-						else
-							query = {
-								Type = 'Company',
-								Id = jobId,
-							}
-
-							update = {
-								['$pull'] = {
-									Grades = {
-										Id = gradeId,
-									}
-								}
-							}
-
-							options = {
-								multi = true
-							}
+						if grades then
+							for k = #grades, 1, -1 do
+								if grades[k].Id == gradeId then
+									table.remove(grades, k)
+									removed = true
+								end
+							end
 						end
 
-						Database.Game:updateOne({
-							collection = 'jobs',
-							query = query,
-							update = update,
-							options = options,
-						}, function(success, updated)
-							if success then
-								RefreshAllJobData(jobId)
+						if removed and StoreJob(job) then
+							RefreshAllJobData(jobId)
 
-								p:resolve(true)
-							else
-								p:resolve(false)
-							end
-						end)
+							p:resolve(true)
+						else
+							p:resolve(false)
+						end
 
 						local res = Citizen.Await(p)
 						return {
@@ -1063,11 +892,10 @@ _JOBS = {
 					query.Jobs['$elemMatch']['Grade.Id'] = gradeId
 				end
 
-				Database.Game:find({
-					collection = 'characters',
-					query = query,
-				}, function(success, results)
-					if success then
+				local results = FetchCharactersWithJob(jobId)
+
+				do
+					do
 						for _, c in ipairs(results) do
 							if c.Jobs and #c.Jobs > 0 then
 								for k, v in ipairs(c.Jobs) do
@@ -1115,43 +943,11 @@ _JOBS = {
 					end
 				end
 
-				local query = {
-					SID = {
-						['$nin'] = onlineCharacters,
-					},
-					Jobs = {
-						['$elemMatch'] = {
-							Id = jobId,
-						}
-					}
-				}
-
-				local update = {
-					['$set'] = {
-						['Jobs.$[job].Name'] = newJobName
-					}
-				}
-
-				local options = {
-					arrayFilters = { 
-						{
-							['job.Id'] = jobId,
-						},
-					},
-				}
-
-				Database.Game:update({
-					collection = 'characters',
-					query = query,
-					update = update,
-					options = options,
-				}, function(success, updated)
-					if success then
-						p:resolve(updated)
-					else
-						p:resolve(false)
-					end
+				local updated = UpdateOfflineCharacterJobs(jobId, onlineCharacters, function(job)
+					job.Name = newJobName
 				end)
+
+				p:resolve(updated)
 
 				local res = Citizen.Await(p)
 				return res
@@ -1178,39 +974,14 @@ _JOBS = {
 					end
 				end
 
-				Database.Game:update({
-					collection = 'characters',
-					query = {
-						SID = {
-							['$nin'] = onlineCharacters,
-						},
-						Jobs = {
-							['$elemMatch'] = {
-								Type = 'Government',
-								Id = jobId,
-								['Workplace.Id'] = workplaceId
-							}
-						}
-					},
-					update = {
-						['$set'] = {
-							['Jobs.$[job].Workplace.Name'] = newWorkplaceName,
-						}
-					},
-					options = {
-						arrayFilters = { 
-							{
-								['job.Id'] = jobId,
-							},
-						},
-					}
-				}, function(success, updated)
-					if success then
-						p:resolve(updated)
-					else
-						p:resolve(false)
+				local updated = UpdateOfflineCharacterJobs(jobId, onlineCharacters, function(job)
+					if job.Workplace and job.Workplace.Id == workplaceId then
+						job.Workplace.Name = newWorkplaceName
 					end
 				end)
+
+				p:resolve(updated)
+
 
 				local res = Citizen.Await(p)
 				return res
@@ -1246,67 +1017,19 @@ _JOBS = {
 						end
 					end
 
-					local query = {}
-					local update = {}
-					local options = {}
+					local updated = UpdateOfflineCharacterJobs(jobId, onlineCharacters, function(job)
+						if (not workplaceId or (job.Workplace and job.Workplace.Id == workplaceId)) and job.Grade and job.Grade.Id == gradeId then
+							if settingData.Name then
+								job.Grade.Name = settingData.Name
+							end
 
-					if workplaceId then
-						query = {
-							SID = {
-								['$nin'] = onlineCharacters,
-							},
-							Jobs = {
-								['$elemMatch'] = {
-									Id = jobId,
-									['Workplace.Id'] = workplaceId,
-									['Grade.Id'] = gradeId,
-								}
-							}
-						}
-					else
-						query = {
-							SID = {
-								['$nin'] = onlineCharacters,
-							},
-							Jobs = {
-								['$elemMatch'] = {
-									Id = jobId,
-									['Grade.Id'] = gradeId,
-								}
-							}
-						}
-					end
-
-					update = { ['$set'] = {} }
-
-					if settingData.Name then
-						update['$set']['Jobs.$[job].Grade.Name'] = settingData.Name
-					end
-
-					if settingData.Level then
-						update['$set']['Jobs.$[job].Grade.Level'] = settingData.Level
-					end
-
-					options = {
-						arrayFilters = { 
-							{
-								['job.Id'] = jobId,
-							},
-						},
-					}
-
-					Database.Game:update({
-						collection = 'characters',
-						query = query,
-						update = update,
-						options = options,
-					}, function(success, updated)
-						if success then
-							p:resolve(updated)
-						else
-							p:resolve(false)
+							if settingData.Level then
+								job.Grade.Level = settingData.Level
+							end
 						end
 					end)
+
+					p:resolve(updated)
 
 					local res = Citizen.Await(p)
 					return res
@@ -1318,25 +1041,20 @@ _JOBS = {
 		Set = function(self, jobId, key, val)
 			if Jobs:DoesExist(jobId) and key then
 				local p = promise.new()
-				Database.Game:updateOne({
-					collection = "jobs",
-					query = {
-						Id = jobId,
-					},
-					update = {
-						["$set"] = {
-							[string.format("Data.%s", key)] = val,
-						},
-					},
-				}, function(success, res)
-					if success then
-						RefreshAllJobData(jobId)
 
-						p:resolve(true)
-					else
-						p:resolve(false)
-					end
-				end)
+				local job = FetchJob(jobId)
+				if job then
+					job.Data = job.Data or {}
+					job.Data[key] = val
+				end
+
+				if job and StoreJob(job) then
+					RefreshAllJobData(jobId)
+
+					p:resolve(true)
+				else
+					p:resolve(false)
+				end
 
 				local res = Citizen.Await(p)
 				return {

@@ -4,7 +4,6 @@ function RetrieveWardrobeComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
 	Ped = exports["mythic-base"]:FetchComponent("Ped")
 	Wardrobe = exports["mythic-base"]:FetchComponent("Wardrobe")
@@ -16,7 +15,6 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Fetch",
 		"Callbacks",
 		"Middleware",
-		"Database",
 		"Locations",
 		"Logger",
 		"Ped",

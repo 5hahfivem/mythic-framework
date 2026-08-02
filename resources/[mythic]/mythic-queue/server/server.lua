@@ -497,7 +497,6 @@ end)
 AddEventHandler("Queue:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
 	c = exports["mythic-base"]:FetchComponent("Config")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	WebAPI = exports["mythic-base"]:FetchComponent("WebAPI")
 	Punishment = exports["mythic-base"]:FetchComponent("Punishment")
 	Queue = exports["mythic-base"]:FetchComponent("Queue")
@@ -510,7 +509,6 @@ end
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Queue", {
 		"Config",
-		"Database",
 		"WebAPI",
 		"Punishment",
 		"Queue",

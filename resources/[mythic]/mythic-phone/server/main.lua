@@ -59,7 +59,6 @@ AddEventHandler("Phone:Shared:DependencyUpdate", RetrieveComponents)
 
 function RetrieveComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
 	Utils = exports["mythic-base"]:FetchComponent("Utils")
@@ -92,7 +91,6 @@ end
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Phone", {
 		"Fetch",
-		"Database",
 		"Callbacks",
 		"Logger",
 		"Utils",
@@ -249,65 +247,39 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		local char = Fetch:Source(src):GetData("Character")
 		local alias = char:GetData("Alias") or {}
 		if data.unique then
-			local query = {
-				["Alias." .. data.app] = data.alias,
-				Phone = {
-					["$ne"] = char:GetData("Phone"),
-				},
-				Deleted = {
-					["$ne"] = true,
-				},
-			}
-
+			local aliasPath, aliasValue
 			if data?.alias?.name ~= nil then
-				query = {
-					["Alias." .. data.app .. ".name"] = data.alias.name,
-					Phone = {
-						["$ne"] = char:GetData("Phone"),
-					},
-					Deleted = {
-						["$ne"] = true,
-					},
-				}
+				aliasPath = string.format('$.Alias."%s".name', data.app)
+				aliasValue = data.alias.name
+			else
+				aliasPath = string.format('$.Alias."%s"', data.app)
+				aliasValue = json.encode(data.alias)
 			end
-			Database.Game:find({
-				collection = "characters",
-				query = query,
-			}, function(success, results)
-				if #results > 0 then
-					cb(false)
+
+			local taken = MySQL.scalar.await(
+				[[SELECT COUNT(*) FROM characters
+					WHERE JSON_EXTRACT(`character`, ?) = CAST(? AS JSON) AND Phone != ? AND Deleted = 0]],
+				{ aliasPath, aliasValue, char:GetData("Phone") }
+			)
+
+			if taken ~= nil and taken > 0 then
+				cb(false)
+			else
+				local updated = MySQL.query.await(
+					'UPDATE characters SET `character` = JSON_SET(`character`, ?, CAST(? AS JSON)) WHERE id = ?',
+					{ aliasPath, aliasValue, char:GetData('ID') }
+				)
+
+				if updated ~= nil then
+					alias[data.app] = data.alias
+					char:SetData("Alias", alias)
+					cb(true)
+
+					TriggerEvent("Phone:Server:AliasUpdated", src)
 				else
-					local upd = {
-						["Alias." .. data.app] = data.alias,
-					}
-
-					if data?.alias?.name ~= nil then
-						upd = {
-							["Alias." .. data.app .. ".name"] = data.alias.name,
-						}
-					end
-
-					Database.Game:updateOne({
-						collection = "characters",
-						query = {
-							_id = char:GetData('ID'),
-						},
-						update = {
-							["$set"] = upd,
-						},
-					}, function(success, updated)
-						if success then
-							alias[data.app] = data.alias
-							char:SetData("Alias", alias)
-							cb(true)
-		
-							TriggerEvent("Phone:Server:AliasUpdated", src)
-						else
-							cb(false)
-						end
-					end)
+					cb(false)
 				end
-			end)
+			end
 		else
 			alias[data.app] = data.alias
 			char:SetData("Alias", alias)
@@ -357,3 +329,24 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		end
 	end)
 end)
+
+function DecodePhoneRow(row, column)
+	if row == nil then
+		return nil
+	end
+
+	local doc = json.decode(row[column])
+	doc._id = row.id
+
+	return doc
+end
+
+function DecodePhoneRows(rows, column)
+	local decoded = {}
+
+	for k, v in ipairs(rows) do
+		table.insert(decoded, DecodePhoneRow(v, column))
+	end
+
+	return decoded
+end

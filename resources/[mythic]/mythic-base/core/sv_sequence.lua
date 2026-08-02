@@ -16,30 +16,18 @@ COMPONENTS.Sequence = {
 			}
 			return _cachedSeq[key].value
 		else
-			local p = promise.new()
-
 			_loading[key] = true
-			COMPONENTS.Database.Game:findOne({
-				collection = "sequence",
-				query = {
-					key = key,
-				},
-			}, function(success, results)
-				if #results == 0 then
-					COMPONENTS.Database.Game:insertOne({
-						collection = "sequence",
-						document = {
-							key = key,
-							current = 1,
-						},
-					})
-					p:resolve({ value = 1, dirty = true })
-				else
-					p:resolve({ value = results[1].current + 1, dirty = true })
-				end
-			end)
-	
-			local v = Citizen.Await(p)
+
+			local result = MySQL.single.await("SELECT current FROM sequence WHERE `key` = ?", { key })
+			local v
+
+			if result == nil then
+				MySQL.insert.await("INSERT INTO sequence (`key`, current) VALUES(?, ?)", { key, 1 })
+				v = { value = 1, dirty = true }
+			else
+				v = { value = result.current + 1, dirty = true }
+			end
+
 			_cachedSeq[key] = v
 			_loading[key] = false
 			return v.value
@@ -48,29 +36,16 @@ COMPONENTS.Sequence = {
 	Save = function(self)
 		for k, v in pairs(_cachedSeq) do
 			if v.dirty then
-				local p = promise.new()
-				COMPONENTS.Database.Game:updateOne({
-					collection = "sequence",
-					query = {
-						key = k,
-					},
-					update = {
-						["$set"] = {
-							current = v.value,
-						},
-					},
-					options = {
-						upsert = true
-					}
-				}, function(success, result)
-					if success then
-						COMPONENTS.Logger:Trace("Sequence", string.format("Saved Sequence: ^2%s^7", k))
-					end
+				local success = MySQL.query.await(
+					"INSERT INTO sequence (`key`, current) VALUES(?, ?) ON DUPLICATE KEY UPDATE current = VALUES(current)",
+					{ k, v.value }
+				) ~= nil
 
-					v.dirty = false
-					p:resolve(true)
-				end)
-				Citizen.Await(p)
+				if success then
+					COMPONENTS.Logger:Trace("Sequence", string.format("Saved Sequence: ^2%s^7", k))
+				end
+
+				v.dirty = false
 			end
 		end
 	end,

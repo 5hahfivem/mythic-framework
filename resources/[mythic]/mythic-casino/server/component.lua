@@ -7,7 +7,6 @@ function RetrieveComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
 	Utils = exports["mythic-base"]:FetchComponent("Utils")
     Execute = exports["mythic-base"]:FetchComponent("Execute")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
     Chat = exports["mythic-base"]:FetchComponent("Chat")
@@ -30,7 +29,6 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Utils",
         "Execute",
         "Chat",
-		"Database",
 		"Middleware",
 		"Callbacks",
 		"Logger",
@@ -123,16 +121,18 @@ AddEventHandler("Core:Shared:Ready", function()
 
 		Callbacks:RegisterServerCallback("Casino:GetBigWins", function(source, data, cb)
             if Player(source).state.onDuty == "casino" then
-				Database.Game:find({
-					collection = 'casino_bigwins',
-					query = {}
-				}, function(success, results)
-					if success and #results > 0 then
-						cb(results)
-					else
-						cb(false)
+				local results = MySQL.query.await('SELECT * FROM casino_bigwins', {})
+
+				if #results > 0 then
+					for k, v in ipairs(results) do
+						results[k].Winner = json.decode(v.Winner)
+						results[k].MetaData = json.decode(v.MetaData)
 					end
-				end)
+
+					cb(results)
+				else
+					cb(false)
+				end
             else
                cb(false)
             end
@@ -155,18 +155,13 @@ function RunConfigStartup()
 	if not _configStartup then
 		_configStartup = true
 
-		Database.Game:find({
-			collection = 'casino_config',
-			query = {}
-		}, function(success, results)
-			if success and #results > 0 then
-				for k, v in ipairs(results) do
-					_casinoConfig[v.key] = v.data
-				end
-			end
+		local results = MySQL.query.await('SELECT * FROM casino_config', {})
 
-			_casinoConfigLoaded = true
-		end)
+		for k, v in ipairs(results) do
+			_casinoConfig[v.key] = json.decode(v.data)
+		end
+
+		_casinoConfigLoaded = true
 	end
 end
 
@@ -204,35 +199,21 @@ _CASINO = {
 	},
 	Config = {
 		Set = function(self, key, data)
-			local p = promise.new()
-
-			Database.Game:findOneAndUpdate({
-				collection = 'casino_config',
-				query = {
-					key = key,
-				},
-				update = {
-					['$set'] = {
-						data = data,
-					},
-				},
-				options = {
-					returnDocument = 'after',
-					upsert = true,
+			local result = MySQL.query.await(
+				'INSERT INTO casino_config (`key`, `data`) VALUES(?, ?) ON DUPLICATE KEY UPDATE `data` = VALUES(`data`)',
+				{
+					key,
+					json.encode(data),
 				}
-			}, function(success, results)
-				if success and results then
-					_casinoConfig[key] = data
-					p:resolve(true)
-				else
-					p:resolve(false)
-				end
+			)
 
-				_casinoConfigLoaded = true
-			end)
+			if result then
+				_casinoConfig[key] = data
+			end
 
-			local res = Citizen.Await(p)
-			return res	
+			_casinoConfigLoaded = true
+
+			return result ~= nil
 		end,
 		Get = function(self, key)
 			return _casinoConfig[key]

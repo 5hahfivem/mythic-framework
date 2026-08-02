@@ -40,19 +40,25 @@ function RegisterBallisticsCallbacks()
 							end
 
 							if update then
-								Database.Game:updateOne({
-									collection = 'firearms',
-									query = {
-										Serial = firearmRecord.Serial
-									},
-									update = update,
-								}, function(success, updated)
-									if success and updated > 0 then
-										cb(true, false, GetMatchingEvidenceProjectiles(firearmRecord.Serial), policeWeapId)
-									else
-										cb(false)
-									end
-								end)
+								firearmRecord.FiledByPolice = true
+								if policeWeapId then
+									firearmRecord.PoliceWeaponId = policeWeapId
+								end
+
+								local updated = MySQL.query.await(
+									'UPDATE firearms SET FiledByPolice = 1, PoliceWeaponId = ?, firearm = ? WHERE Serial = ?',
+									{
+										firearmRecord.PoliceWeaponId,
+										json.encode(firearmRecord),
+										firearmRecord.Serial,
+									}
+								)
+
+								if updated ~= nil then
+									cb(true, false, GetMatchingEvidenceProjectiles(firearmRecord.Serial), policeWeapId)
+								else
+									cb(false)
+								end
 							end
 						else
 							return cb(true, true, GetMatchingEvidenceProjectiles(firearmRecord.Serial), firearmRecord.PoliceWeaponId)
@@ -138,100 +144,69 @@ function GetFirearmsRecord(serialNumber, scratched, filedOnly)
 
 	local p = promise.new()
 
-	local query = {
-		Serial = serialNumber,
-		Scratched = scratched,
-	}
+	local query = 'SELECT firearm FROM firearms WHERE Serial = ? AND Scratched = ?'
+	local params = { serialNumber, scratched and 1 or 0 }
 
 	if filedOnly then
-		query.FiledByPolice = true
+		query = query .. ' AND FiledByPolice = 1'
 	end
 
-	Database.Game:findOne({
-		collection = 'firearms',
-		query = query,
-	}, function(success, results)
-		if success and #results > 0 and results[1] then
-			p:resolve(results[1])
-		else
-			p:resolve(false)
-		end
-	end)
+	local result = MySQL.single.await(query, params)
 
-	return Citizen.Await(p)
+	if result == nil then
+		return false
+	end
+
+	return json.decode(result.firearm)
 end
 
 function GetEvidenceProjectileRecord(evidenceId)
-	local p = promise.new()
+	local result = MySQL.single.await('SELECT projectile FROM firearms_projectiles WHERE Id = ?', { evidenceId })
 
-	Database.Game:findOne({
-		collection = 'firearms_projectiles',
-		query = {
-			Id = evidenceId,
-		}
-	}, function(success, results)
-		if success and #results > 0 and results[1] then
-			p:resolve(results[1])
-		else
-			p:resolve(false)
-		end
-	end)
+	if result == nil then
+		return false
+	end
 
-	return Citizen.Await(p)
+	return json.decode(result.projectile)
 end
 
 function CreateEvidenceProjectileRecord(document)
-	local p = promise.new()
-	Database.Game:insertOne({
-		collection = 'firearms_projectiles',
-		document = document,
-	}, function(success, result, insertId)
-		if success then
-			p:resolve(document)
-		else
-			p:resolve(false)
-		end
-	end)
+	local inserted = MySQL.insert.await(
+		'INSERT INTO firearms_projectiles (Id, WeaponSerial, projectile) VALUES(?, ?, ?)',
+		{
+			document.Id,
+			document.Weapon?.serial,
+			json.encode(document),
+		}
+	)
 
-	return Citizen.Await(p)
+	if inserted == nil then
+		return false
+	end
+
+	return document
 end
 
 function GetMatchingEvidenceProjectiles(weaponSerial)
-	local p = promise.new()
+	local results = MySQL.query.await('SELECT Id FROM firearms_projectiles WHERE WeaponSerial = ?', { weaponSerial })
 
-	Database.Game:find({
-		collection = 'firearms_projectiles',
-		query = {
-			['Weapon.serial'] = weaponSerial,
-		}
-	}, function(success, results)
-		if success and #results > 0 then
-			local foundEvidence = {}
+	local foundEvidence = {}
+	for k, v in ipairs(results) do
+		table.insert(foundEvidence, v.Id)
+	end
 
-			for k, v in ipairs(results) do
-				table.insert(foundEvidence, v.Id)
-			end
-			p:resolve(foundEvidence)
-		else
-			p:resolve({})
-		end
-	end)
-
-	return Citizen.Await(p)
+	return foundEvidence
 end
 
 function GetCharacter(stateId)
 	local p = promise.new()
 
-	Database.Game:findOne({
-		collection = 'characters',
-		query = {
-			SID = stateId,
-		}
-	}, function(success, results)
-		if success and #results > 0 then
-			local char = results[1]
-			if char and char.SID and char.First and char.Last then
+	do
+		local row = MySQL.single.await('SELECT `character` FROM characters WHERE SID = ?', { stateId })
+		local char = row and json.decode(row.character) or nil
+
+		if char then
+			if char.SID and char.First and char.Last then
 				p:resolve({
 					SID = char.SID,
 					First = char.First,
@@ -242,7 +217,7 @@ function GetCharacter(stateId)
 		else
 			p:resolve(false)
 		end
-	end)
+	end
 
 	return Citizen.Await(p)
 end

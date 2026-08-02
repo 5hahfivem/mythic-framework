@@ -6,7 +6,6 @@ _loaded = false
 
 AddEventHandler('Jobs:Shared:DependencyUpdate', RetrieveComponents)
 function RetrieveComponents()
-	Database = exports['mythic-base']:FetchComponent('Database')
 	Middleware = exports['mythic-base']:FetchComponent('Middleware')
 	Callbacks = exports['mythic-base']:FetchComponent('Callbacks')
 	Logger = exports['mythic-base']:FetchComponent('Logger')
@@ -22,7 +21,6 @@ end
 
 AddEventHandler('Core:Shared:Ready', function()
 	exports['mythic-base']:RequestDependencies('Jobs', {
-		'Database',
 		'Middleware',
 		'Callbacks',
 		'Logger',
@@ -50,20 +48,15 @@ AddEventHandler('Core:Shared:Ready', function()
 end)
 
 function FindAllJobs()
-	local p = promise.new()
+	local rows = MySQL.query.await('SELECT * FROM jobs', {})
 
-	Database.Game:find({
-		collection = 'jobs',
-		query = {},
-	}, function(success, results)
-		if success and #results > 0 then
-			p:resolve(results)
-		else
-			p:resolve({})
-		end
-	end)
+	local res = {}
+	for k, v in ipairs(rows) do
+		local job = json.decode(v.job)
+		job._id = v.id
+		table.insert(res, job)
+	end
 
-	local res = Citizen.Await(p)
 	return res
 end
 
@@ -76,51 +69,23 @@ function RefreshAllJobData(job)
 
 	TriggerEvent('Jobs:Server:UpdatedCache', job or -1)
 
-	local govPromise = promise.new()
-	Database.Game:aggregate({
-        collection = 'jobs',
-        aggregate = {
-			{ ["$match"] = { Type = 'Government' } },
-			{ ["$project"] = { ['Type'] = 1, ['Id'] = 1, ['Name'] = 1, ['Workplaces.Grades'] = 1, ['Workplaces.Id'] = 1 } },
-            { ["$unwind"] = '$Workplaces' },
-            { ["$unwind"] = '$Workplaces.Grades' },
-        }
-    }, function(success, results)
-		if success and #results > 0 then
-			for k, v in ipairs(results) do
-				local key = string.format('JobPerms:%s:%s:%s', v.Id, v.Workplaces.Id, v.Workplaces.Grades.Id)
-				GlobalState[key] = v.Workplaces.Grades.Permissions
+	for k, v in ipairs(jobsFetch) do
+		if v.Type == 'Government' and v.Workplaces then
+			for k2, workplace in ipairs(v.Workplaces) do
+				for k3, grade in ipairs(workplace.Grades or {}) do
+					local key = string.format('JobPerms:%s:%s:%s', v.Id, workplace.Id, grade.Id)
+					GlobalState[key] = grade.Permissions
+				end
 			end
-			govPromise:resolve(true)
-		else
-			govPromise:resolve(false)
-		end
-    end)
-
-	local companyPromise = promise.new()
-	Database.Game:aggregate({
-        collection = 'jobs',
-        aggregate = {
-			{ ["$match"] = { Type = 'Company' } },
-			{ ["$project"] = { ['Type'] = 1, ['Id'] = 1, ['Name'] = 1, ['Grades'] = 1 } },
-            { ["$unwind"] = '$Grades' },
-        }
-    }, function(success, results)
-		if success and #results > 0 then
-			for k, v in ipairs(results) do
-				local key = string.format('JobPerms:%s:false:%s', v.Id, v.Grades.Id)
-				GlobalState[key] = v.Grades.Permissions
+		elseif v.Type == 'Company' and v.Grades then
+			for k2, grade in ipairs(v.Grades) do
+				local key = string.format('JobPerms:%s:false:%s', v.Id, grade.Id)
+				GlobalState[key] = grade.Permissions
 			end
-			companyPromise:resolve(true)
-		else
-			companyPromise:resolve(false)
 		end
-    end)
+	end
 
-	return Citizen.Await(promise.all({
-		govPromise,
-		companyPromise,
-	}))
+	return true
 end
 
 function RunStartup()
@@ -129,46 +94,34 @@ function RunStartup()
 
 	local function replaceExistingDefaultJob(_id, document)
 		local p = promise.new()
-		Database.Game:deleteOne({
-			collection = 'jobs',
-			query = {
-				_id = _id,
-			}
-		}, function(success, deleted)
-			if success then
-				Database.Game:insertOne({
-					collection = 'jobs',
-					document = document,
-				}, function(success, inserted)
-					if not success or inserted <= 0 then
-						Logger:Error('Jobs', 'Error Inserting Job on Default Job Update')
-						p:resolve(false)
-					else
-						Wait(10000)
-						p:resolve(true)
-					end
-				end)
-			else
-				Logger:Error('Jobs', 'Error Deleting Job on Default Job Update')
-				p:resolve(false)
-			end
-		end)
+
+		if MySQL.query.await('DELETE FROM jobs WHERE id = ?', { _id }) == nil then
+			Logger:Error('Jobs', 'Error Deleting Job on Default Job Update')
+			p:resolve(false)
+			return p
+		end
+
+		if InsertJob(document) == nil then
+			Logger:Error('Jobs', 'Error Inserting Job on Default Job Update')
+			p:resolve(false)
+		else
+			Wait(10000)
+			p:resolve(true)
+		end
+
 		return p
 	end
 
 	local function insertDefaultJob(document)
 		local p = promise.new()
-		Database.Game:insertOne({
-			collection = 'jobs',
-			document = document,
-		}, function(success, inserted)
-			if not success or inserted <= 0 then
-				Logger:Error('Jobs', 'Error Inserting Job on Default Job Update')
-				p:resolve(false)
-			else
-				p:resolve(true)
-			end
-		end)
+
+		if InsertJob(document) == nil then
+			Logger:Error('Jobs', 'Error Inserting Job on Default Job Update')
+			p:resolve(false)
+		else
+			p:resolve(true)
+		end
+
 		return p
 	end
 
@@ -197,4 +150,122 @@ function RunStartup()
 	RefreshAllJobData()
 	Logger:Trace('Jobs', string.format('Loaded ^2%s^7 Jobs', JOB_COUNT))
 	TriggerEvent('Jobs:Server:CompleteStartup')
+end
+
+function InsertJob(document)
+	return MySQL.insert.await('INSERT INTO jobs (Id, Type, Name, job) VALUES(?, ?, ?, ?)', {
+		document.Id,
+		document.Type,
+		document.Name,
+		json.encode(document),
+	})
+end
+
+function StoreJob(job)
+	return MySQL.query.await('UPDATE jobs SET Type = ?, Name = ?, job = ? WHERE Id = ?', {
+		job.Type,
+		job.Name,
+		json.encode(job),
+		job.Id,
+	}) ~= nil
+end
+
+function FetchJob(jobId)
+	local row = MySQL.single.await('SELECT * FROM jobs WHERE Id = ?', { jobId })
+
+	if row == nil then
+		return false
+	end
+
+	local job = json.decode(row.job)
+	job._id = row.id
+
+	return job
+end
+
+function GetJobGrades(job, workplaceId)
+	if workplaceId then
+		local workplace = job.Workplaces and FindById(job.Workplaces, workplaceId)
+		if not workplace then
+			return false
+		end
+
+		workplace.Grades = workplace.Grades or {}
+		return workplace.Grades
+	end
+
+	job.Grades = job.Grades or {}
+	return job.Grades
+end
+
+function FindById(list, id)
+	for k, v in ipairs(list or {}) do
+		if v.Id == id then
+			return v
+		end
+	end
+
+	return false
+end
+
+function FetchCharacterBySID(stateId)
+	local row = MySQL.single.await('SELECT `character` FROM characters WHERE SID = ?', { stateId })
+
+	if row == nil then
+		return false
+	end
+
+	return json.decode(row.character)
+end
+
+function StoreCharacterJobs(stateId, jobs)
+	return MySQL.query.await(
+		[[UPDATE characters SET `character` = JSON_SET(`character`, '$.Jobs', CAST(? AS JSON)) WHERE SID = ?]],
+		{ json.encode(jobs), stateId }
+	) ~= nil
+end
+
+function FetchCharactersWithJob(jobId)
+	local rows = MySQL.query.await(
+		[[SELECT `character` FROM characters WHERE JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), JSON_OBJECT('Id', ?))]],
+		{ jobId }
+	)
+
+	local characters = {}
+	for k, v in ipairs(rows) do
+		table.insert(characters, json.decode(v.character))
+	end
+
+	return characters
+end
+
+function UpdateOfflineCharacterJobs(jobId, onlineCharacters, mutate)
+	local online = {}
+	for k, v in ipairs(onlineCharacters or {}) do
+		online[v] = true
+	end
+
+	local rows = MySQL.query.await(
+		[[SELECT SID, `character` FROM characters WHERE JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), JSON_OBJECT('Id', ?))]],
+		{ jobId }
+	)
+
+	local updated = 0
+	for k, v in ipairs(rows) do
+		if not online[v.SID] then
+			local character = json.decode(v.character)
+
+			for k2, job in ipairs(character.Jobs or {}) do
+				if job.Id == jobId then
+					mutate(job)
+				end
+			end
+
+			if StoreCharacterJobs(v.SID, character.Jobs) then
+				updated = updated + 1
+			end
+		end
+	end
+
+	return updated
 end

@@ -303,62 +303,29 @@ PHONE.CoManager = {
 
 		local p = promise.new()
 
-		local query = {
-			SID = {
-				["$nin"] = onlineCharacters,
-			},
-			Jobs = {
-				["$elemMatch"] = {
-					Id = {
-						["$in"] = Utils:GetTableKeys(fetchingJobs)
-					}
-				}
-			}
-		}
+		local results = FetchComanagerCharacters(Utils:GetTableKeys(fetchingJobs), workplaceId, gradeId)
 
-		if workplaceId then
-			query.Jobs["$elemMatch"]["Workplace.Id"] = workplaceId
-		end
-
-		if gradeId then
-			query.Jobs["$elemMatch"]["Grade.Id"] = gradeId
-		end
-
-		Database.Game:find({
-			collection = "characters",
-			query = query,
-			options = {
-				projection = {
-					SID = 1,
-					First = 1,
-					Last = 1,
-					Phone = 1,
-					Jobs = 1,
-				}
-			}
-		}, function(success, results)
-			if success then
-				for _, c in ipairs(results) do
-					if c.Jobs and #c.Jobs > 0 then
-						for k, v in ipairs(c.Jobs) do
-							if fetchingJobs[v.Id] then
-								table.insert(fetchedRosterData[v.Id], {
-									Source = false,
-									SID = c.SID,
-									First = c.First,
-									Last = c.Last,
-									Phone = c.Phone,
-									JobData = v,
-								})
-							end
+		do
+			for _, c in ipairs(results) do
+				if c.Jobs and #c.Jobs > 0 then
+					for k, v in ipairs(c.Jobs) do
+						if fetchingJobs[v.Id] then
+							table.insert(fetchedRosterData[v.Id], {
+								Source = false,
+								SID = c.SID,
+								First = c.First,
+								Last = c.Last,
+								Phone = c.Phone,
+								JobData = v,
+							})
 						end
 					end
 				end
-				p:resolve(true)
-			else
-				p:resolve(false)
 			end
-		end)
+			p:resolve(true)
+		else
+			p:resolve(false)
+		end
 
 		local res = Citizen.Await(p)
 		if res then
@@ -398,49 +365,24 @@ PHONE.CoManager = {
 
 			local p = promise.new()
 
-			local query = {
-				SID = {
-					["$nin"] = onlineCharacters,
-				},
-				Jobs = {
-					["$elemMatch"] = {
-						Id = jobId
-					}
-				}
-			}
-	
-			Database.Game:find({
-				collection = "characters",
-				query = query,
-				options = {
-					projection = {
-						SID = 1,
-						First = 1,
-						Last = 1,
-						Phone = 1,
-						--Jobs = 1,
-						LastClockOn = 1,
-						TimeClockedOn = 1,
-					}
-				}
-			}, function(success, results)
-				if success then
-					for _, c in ipairs(results) do
-						table.insert(onlineShit, {
-							Source = false,
-							SID = c.SID,
-							First = c.First,
-							Last = c.Last,
-							Phone = c.Phone,
-							LastClockOn = c.LastClockOn,
-							TimeClockedOn = c.TimeClockedOn,
-						})
-					end
-					p:resolve(true)
-				else
-					p:resolve(false)
+			local results = FetchComanagerCharacters({ jobId }, nil, nil, onlineCharacters)
+
+			do
+				for _, c in ipairs(results) do
+					table.insert(onlineShit, {
+						Source = false,
+						SID = c.SID,
+						First = c.First,
+						Last = c.Last,
+						Phone = c.Phone,
+						LastClockOn = c.LastClockOn,
+						TimeClockedOn = c.TimeClockedOn,
+					})
 				end
-			end)
+				p:resolve(true)
+			else
+				p:resolve(false)
+			end
 
 			local res = Citizen.Await(p)
 			if res then
@@ -455,18 +397,13 @@ PHONE.CoManager = {
 
 function GetOfflineCharacter(stateId)
 	local p = promise.new()
-	Database.Game:findOne({
-		collection = "characters",
-		query = {
-			SID = stateId,
-		}
-	}, function(success, results)
-		if success and #results > 0 then
-			p:resolve(results[1])
-		else
-			p:resolve(false)
-		end
-	end)
+	local row = MySQL.single.await('SELECT * FROM characters WHERE SID = ?', { stateId })
+
+	if row ~= nil then
+		p:resolve(json.decode(row.character))
+	else
+		p:resolve(false)
+	end
 
 	local res = Citizen.Await(p)
 	return res
@@ -982,3 +919,44 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 	-- 	end
 	-- end)
 end)
+
+function FetchComanagerCharacters(jobIds, workplaceId, gradeId, excludeSIDs)
+	local clauses, params = {}, {}
+
+	for k, v in ipairs(jobIds or {}) do
+		local filter = { Id = v }
+
+		if workplaceId then
+			filter.Workplace = { Id = workplaceId }
+		end
+
+		if gradeId then
+			filter.Grade = { Id = gradeId }
+		end
+
+		table.insert(clauses, "JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), CAST(? AS JSON))")
+		table.insert(params, json.encode(filter))
+	end
+
+	if #clauses == 0 then
+		return {}
+	end
+
+	local query = string.format('SELECT * FROM characters WHERE Deleted = 0 AND (%s)', table.concat(clauses, ' OR '))
+
+	if excludeSIDs and #excludeSIDs > 0 then
+		query = string.format('%s AND SID NOT IN (%s)', query, string.rep('?, ', #excludeSIDs - 1) .. '?')
+		for k, v in ipairs(excludeSIDs) do
+			table.insert(params, v)
+		end
+	end
+
+	local rows = MySQL.query.await(query, params)
+
+	local characters = {}
+	for k, v in ipairs(rows) do
+		table.insert(characters, json.decode(v.character))
+	end
+
+	return characters
+end

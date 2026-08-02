@@ -4,15 +4,13 @@ end)
 
 ENTITYTYPES = {
     Get = function(self, cb)
-        Database.Game:find({
-            collection = 'entitytypes',
-            query = {
-            
-            }
-        }, function(success, results)
-            if not success then return; end
-            cb(results)
-        end)
+        local results = MySQL.query.await('SELECT * FROM entitytypes', {})
+
+        for k, v in ipairs(results) do
+            results[k].data = v.data and json.decode(v.data) or nil
+        end
+
+        cb(results)
     end,
     GetID = function(self, id, cb)
         cb(LoadedEntitys[id])

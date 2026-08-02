@@ -50,13 +50,11 @@ AddEventHandler("Phone:Server:RegisterMiddleware", function()
 		local char = Fetch:Source(source):GetData("Character")
 
 		if _tracks == nil then
-			Database.Game:find({
-				collection = "tracks",
-			}, function(success, tracks)
-				_tracks = tracks
-				TriggerClientEvent("Phone:Client:Redline:StoreTracks", source, _tracks)
-				TriggerClientEvent("Phone:Client:SetData", source, "tracks", _tracks)
-			end)
+			local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks", {}), "track")
+
+			_tracks = tracks
+			TriggerClientEvent("Phone:Client:Redline:StoreTracks", source, _tracks)
+			TriggerClientEvent("Phone:Client:SetData", source, "tracks", _tracks)
 		else
 			TriggerClientEvent("Phone:Client:Redline:StoreTracks", source, _tracks)
 			TriggerClientEvent("Phone:Client:SetData", source, "tracks", _tracks)
@@ -70,13 +68,11 @@ AddEventHandler("Phone:Server:RegisterMiddleware", function()
 		local char = Fetch:Source(source):GetData("Character")
 
 		if _tracks == nil then
-			Database.Game:find({
-				collection = "tracks",
-			}, function(success, tracks)
-				_tracks = tracks
-				TriggerClientEvent("Phone:Client:Redline:StoreTracks", source, _tracks)
-				TriggerClientEvent("Phone:Client:SetData", source, "tracks", _tracks)
-			end)
+			local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks", {}), "track")
+
+			_tracks = tracks
+			TriggerClientEvent("Phone:Client:Redline:StoreTracks", source, _tracks)
+			TriggerClientEvent("Phone:Client:SetData", source, "tracks", _tracks)
 		else
 			TriggerClientEvent("Phone:Client:Redline:StoreTracks", source, _tracks)
 			TriggerClientEvent("Phone:Client:SetData", source, "tracks", _tracks)
@@ -98,9 +94,8 @@ AddEventHandler("Phone:Server:RegisterMiddleware", function()
 end)
 
 function ReloadRaceTracks()
-	Database.Game:find({
-		collection = "tracks",
-	}, function(success, tracks)
+	local tracks = DecodePhoneRows(MySQL.query.await("SELECT * FROM tracks", {}), "track")
+
 		_tracks = tracks
 		TriggerClientEvent("Phone:Client:Redline:StoreTracks", -1, _tracks)
 		TriggerClientEvent("Phone:Client:SetData", -1, "tracks", _tracks)
@@ -293,23 +288,13 @@ end
 function UpdateFastest(track, fastest)
 	local p = promise.new()
 
-	Database.Game:updateOne({
-		collection = "tracks",
-		query = {
-			_id = track,
-		},
-		update = {
-			["$set"] = {
-				Fastest = fastest,
-			},
-		},
-	}, function(success, results)
-		if success then
-			return p:resolve(true)
-		else
-			return p:resolve(false)
-		end
-	end)
+	local success = UpdateTrackField('tracks', track, 'Fastest', fastest)
+
+	if success then
+		return p:resolve(true)
+	else
+		return p:resolve(false)
+	end
 	return Citizen.Await(p)
 end
 
@@ -352,7 +337,6 @@ RegisterServerEvent("Phone:Redline:FinishRace", function(nId, data, laps, plate,
 		CreateThread(function()
 			Wait(tonumber(_races[tonumber(data)].dnf_time) * 1000)
 			FinishRace(tonumber(data))
-		end)
 	end
 end)
 
@@ -372,72 +356,48 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		local alias = char:GetData("Alias").redline
 
 		if alias ~= nil then
-			Database.Game:insertOne({
-				collection = "tracks",
-				document = data,
-			}, function(success, result, insertedIds)
-				if not success then
-					cb(false)
-				end
-				cb(true)
-				data._id = insertedIds[1]
-				table.insert(_tracks, data)
-				TriggerClientEvent("Phone:Client:AddData", -1, "tracks", data)
-			end)
+			local insertedIds = { MySQL.insert.await("INSERT INTO tracks (track) VALUES(?)", { json.encode(data) }) }
+
+			if insertedIds[1] == nil then
+				cb(false)
+			end
+			cb(true)
+			data._id = insertedIds[1]
+			table.insert(_tracks, data)
+			TriggerClientEvent("Phone:Client:AddData", -1, "tracks", data)
 		else
 			cb(false)
 		end
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:Redline:SaveLaptimes", function(src, data, cb)
-		Database.Game:update({
-			collection = "tracks",
-			query = {
-				_id = data.track,
-			},
-			update = {
-				["$push"] = {
-					History = {
-						["$each"] = data.laps,
-						["$sort"] = {
-							time = 1,
-						},
-						["$slice"] = 10,
-					},
-				},
-			},
-		}, function(success, results)
-			for k, v in ipairs(_tracks) do
-				if v._id == data.track then
-					for k2, v2 in ipairs(data.laps) do
-						table.insert(v.History, v2)
-					end
-					TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks", v._id, v)
-					return
+		AppendTrackHistory('tracks', data.track, data.laps)
+
+		for k, v in ipairs(_tracks) do
+			if v._id == data.track then
+				for k2, v2 in ipairs(data.laps) do
+					table.insert(v.History, v2)
 				end
+				TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks", v._id, v)
+				return
 			end
-		end)
+		end
 	end)
 
 	Callbacks:RegisterServerCallback("Phone:Redline:DeleteTrack", function(src, data, cb)
 		local char = Fetch:Source(src):GetData("Character")
 		local alias = char:GetData("Alias").redline
 		if alias ~= nil then
-			Database.Game:deleteOne({
-				collection = "tracks",
-				query = {
-					_id = data,
-				},
-			}, function(success, results)
-				cb(success)
-				TriggerClientEvent("Phone:Client:RemoveData", -1, "tracks", data)
-				for k, v in ipairs(_tracks) do
-					if v._id == data then
-						table.remove(_tracks, k)
-						return
-					end
+			local success = MySQL.query.await("DELETE FROM tracks WHERE id = ?", { data }) ~= nil
+
+			cb(success)
+			TriggerClientEvent("Phone:Client:RemoveData", -1, "tracks", data)
+			for k, v in ipairs(_tracks) do
+				if v._id == data then
+					table.remove(_tracks, k)
+					return
 				end
-			end)
+			end
 		else
 			cb(false)
 		end
@@ -447,30 +407,17 @@ AddEventHandler("Phone:Server:RegisterCallbacks", function()
 		local char = Fetch:Source(src):GetData("Character")
 		local alias = char:GetData("Alias").redline
 		if alias ~= nil then
-			Database.Game:updateOne({
-				collection = "tracks",
-				query = {
-					_id = data,
-				},
-				update = {
-					["$set"] = {
-						History = {},
-					},
-					["$unset"] = {
-						Fastest = "",
-					},
-				},
-			}, function(success, results)
-				cb(success)
-				for k, v in ipairs(_tracks) do
-					if v._id == data then
-						v.Fastest = nil
-						v.History = {}
-						TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks", data, v)
-						return
-					end
+			local success = ResetTrackHistory('tracks', data)
+
+			cb(success)
+			for k, v in ipairs(_tracks) do
+				if v._id == data then
+					v.Fastest = nil
+					v.History = {}
+					TriggerClientEvent("Phone:Client:UpdateData", -1, "tracks", data, v)
+					return
 				end
-			end)
+			end
 		else
 			cb(false)
 		end

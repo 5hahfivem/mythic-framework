@@ -5,7 +5,6 @@ function RetrieveComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
 	Utils = exports["mythic-base"]:FetchComponent("Utils")
     Execute = exports["mythic-base"]:FetchComponent("Execute")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
     Chat = exports["mythic-base"]:FetchComponent("Chat")
@@ -29,7 +28,6 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Utils",
         "Execute",
         "Chat",
-		"Database",
 		"Middleware",
 		"Callbacks",
 		"Logger",

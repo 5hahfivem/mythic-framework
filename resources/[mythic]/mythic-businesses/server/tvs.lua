@@ -8,18 +8,13 @@ AddEventHandler('Businesses:Server:Startup', function()
             end
         end
 
-        Database.Game:find({
-            collection = 'business_tvs',
-            query = {}
-        }, function(success, results)
-            if success and #results > 0 then
-                for k, v in pairs(results) do
-                    if v.tv and _tvData[v.tv] then
-                        GlobalState[string.format('TVsLink:%s', v.tv)] = v.link
-                    end
-                end
+        local results = MySQL.query.await('SELECT * FROM business_tvs', {})
+
+        for k, v in pairs(results) do
+            if v.tv and _tvData[v.tv] then
+                GlobalState[string.format('TVsLink:%s', v.tv)] = v.link
             end
-        end)
+        end
     end
 
     Callbacks:RegisterServerCallback('TVs:UpdateTVLink', function(source, data, cb)
@@ -45,27 +40,19 @@ end)
 function SetBusinessTVLink(tvId, link)
     local p = promise.new()
 
-    Database.Game:findOneAndUpdate({
-        collection = 'business_tvs',
-        query = {
-            tv = tvId,
-        },
-        update = {
-            ['$set'] = {
-                link = link,
-            },
-        },
-        options = {
-            returnDocument = 'after',
-            upsert = true,
+    local success = MySQL.query.await(
+        'INSERT INTO business_tvs (tv, link) VALUES(?, ?) ON DUPLICATE KEY UPDATE link = VALUES(link)',
+        {
+            tvId,
+            link,
         }
-    }, function(success, results)
-        if success and results then
-            p:resolve(results.link)
-        else
-            p:resolve(false)
-        end
-    end)
+    ) ~= nil
+
+    if success then
+        p:resolve(link)
+    else
+        p:resolve(false)
+    end
 
     local res = Citizen.Await(p)
     return res

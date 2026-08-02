@@ -12,23 +12,18 @@ itemsLoaded = false
 _started = false
 
 function LoadSchematics()
-	Database.Game:find({
-		collection = "schematics",
-		query = {},
-	}, function(success, schems)
-		if success then
-			for k, v in ipairs(schems) do
-				_knownRecipes[v.bench] = _knownRecipes[v.bench] or {}
-				table.insert(_knownRecipes[v.bench], _schematics[v.item])
-				if _types[v.bench] ~= nil then
-					local f = table.copy(_schematics[v.item] or {})
-					f.schematic = v.item
-					Crafting:AddRecipeToBench(v.bench, v.item, f)
-				end
-			end
-			_knownRecipes = schems
+	local schems = MySQL.query.await("SELECT * FROM schematics", {})
+
+	for k, v in ipairs(schems) do
+		_knownRecipes[v.bench] = _knownRecipes[v.bench] or {}
+		table.insert(_knownRecipes[v.bench], _schematics[v.item])
+		if _types[v.bench] ~= nil then
+			local f = table.copy(_schematics[v.item] or {})
+			f.schematic = v.item
+			Crafting:AddRecipeToBench(v.bench, v.item, f)
 		end
-	end)
+	end
+	_knownRecipes = schems
 end
 
 local tmpItems = { '"paleto_access_codes"' }
@@ -316,15 +311,11 @@ function LoadShops()
 			storeBankAccounts[v.id] = f.Account
 		end
 
-		Database.Game:find({
-			collection = "store_bank_accounts",
-		}, function(success, results)
-			if success and #results > 0 then
-				for k, v in ipairs(results) do
-					storeBankAccounts[v.Shop] = v.Account
-				end
-			end
-		end)
+		local accounts = MySQL.query.await("SELECT * FROM store_bank_accounts", {})
+
+		for k, v in ipairs(accounts) do
+			storeBankAccounts[v.Shop] = v.Account
+		end
 
 		Logger:Trace("Inventory", string.format("Loaded ^2%s^7 Shop Locations", #_shops))
 	end)
@@ -332,25 +323,17 @@ end
 
 function RegisterCommands()
 	Chat:RegisterAdminCommand("storebank", function(source, args, rawCommand)
-		Database.Game:updateOne({
-			collection = "store_bank_accounts",
-			update = {
-				["$set"] = {
-					Shop = tonumber(args[1]),
-					Account = tonumber(args[2]),
-				},
-			},
-			query = {
-				Shop = tonumber(args[1]),
-			},
-			options = {
-				upsert = true,
-			},
-		}, function(success, result)
-			if success then
-				storeBankAccounts[string.format("shop:%s", tonumber(args[1]))] = tonumber(args[2])
-			end
-		end)
+		local success = MySQL.query.await(
+			"INSERT INTO store_bank_accounts (Shop, Account) VALUES(?, ?) ON DUPLICATE KEY UPDATE Account = VALUES(Account)",
+			{
+				tonumber(args[1]),
+				tonumber(args[2]),
+			}
+		) ~= nil
+
+		if success then
+			storeBankAccounts[string.format("shop:%s", tonumber(args[1]))] = tonumber(args[2])
+		end
 	end, {
 		help = "Link Bank Account To Shop",
 		params = {

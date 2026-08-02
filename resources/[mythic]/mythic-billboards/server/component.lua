@@ -3,7 +3,6 @@ function RetrieveComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
 	Utils = exports["mythic-base"]:FetchComponent("Utils")
     Execute = exports["mythic-base"]:FetchComponent("Execute")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
     Chat = exports["mythic-base"]:FetchComponent("Chat")
@@ -23,7 +22,6 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Utils",
         "Execute",
         "Chat",
-		"Database",
 		"Middleware",
 		"Callbacks",
 		"Logger",
@@ -128,51 +126,34 @@ function FetchBillboardsData()
     local fetchedBillboards = {}
     local billboardIds = {}
 
-    Database.Game:find({
-        collection = 'billboards',
-        query = {}
-    }, function(success, results)
-        if success and #results > 0 then
-            for k, v in ipairs(results) do
-                if v.billboardId and v.billboardUrl then
-                    fetchedBillboards[v.billboardId] = v.billboardUrl
-                end
-            end
-        end
+    local results = MySQL.query.await('SELECT * FROM billboards', {})
 
-        for k,v in pairs(_billboardConfig) do
-            GlobalState[string.format("Billboards:%s", k)] = fetchedBillboards[k]
-
-            table.insert(billboardIds, k)
+    for k, v in ipairs(results) do
+        if v.billboardId and v.billboardUrl then
+            fetchedBillboards[v.billboardId] = v.billboardUrl
         end
-    end)
+    end
+
+    for k,v in pairs(_billboardConfig) do
+        GlobalState[string.format("Billboards:%s", k)] = fetchedBillboards[k]
+
+        table.insert(billboardIds, k)
+    end
 end
 
 function SetBillboardURL(billboardId, url)
-    local p = promise.new()
+    if not url then
+        MySQL.query.await('DELETE FROM billboards WHERE billboardId = ?', { billboardId })
+        return true
+    end
 
-    Database.Game:findOneAndUpdate({
-        collection = 'billboards',
-        query = {
-            billboardId = billboardId,
-        },
-        update = {
-            ['$set'] = {
-                billboardUrl = url,
-            },
-        },
-        options = {
-            returnDocument = 'after',
-            upsert = true,
+    local result = MySQL.query.await(
+        'INSERT INTO billboards (billboardId, billboardUrl) VALUES(?, ?) ON DUPLICATE KEY UPDATE billboardUrl = VALUES(billboardUrl)',
+        {
+            billboardId,
+            url,
         }
-    }, function(success, results)
-        if success and results then
-            p:resolve(true)
-        else
-            p:resolve(false)
-        end
-    end)
+    )
 
-    local res = Citizen.Await(p)
-    return res
+    return result ~= nil
 end

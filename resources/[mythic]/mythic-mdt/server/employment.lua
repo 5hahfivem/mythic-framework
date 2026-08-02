@@ -13,24 +13,14 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 			cb(added)
 
 			if added then
-				Database.Game:updateOne({
-					collection = "characters",
-					query = {
-						SID = data.SID,
-					},
-					update = {
-						["$push"] = {
-							MDTHistory = {
-								Time = (os.time() * 1000),
-								Char = char:GetData("SID"),
-								Log = string.format(
-									"%s Hired Them To %s",
-									char:GetData("First") .. " " .. char:GetData("Last"),
-									json.encode(data)
-								),
-							},
-						},
-					},
+				PushCharacterHistory(data.SID, {
+					Time = (os.time() * 1000),
+					Char = char:GetData("SID"),
+					Log = string.format(
+						"%s Hired Them To %s",
+						char:GetData("First") .. " " .. char:GetData("Last"),
+						json.encode(data)
+					),
 				})
 			end
 		else
@@ -90,14 +80,19 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 							}
 						end
 
-						Database.Game:updateOne({
-							collection = "characters",
-							query = {
-								SID = data.SID,
-							},
-							update = update,
-						}, function(success, results)
-							if success then
+						local character = FetchMdtCharacter(data.SID)
+
+						if character then
+							character.MDTHistory = character.MDTHistory or {}
+							table.insert(character.MDTHistory, update["$push"].MDTHistory)
+
+							if update["$set"] then
+								for k, v in pairs(update["$set"]) do
+									character[k] = v
+								end
+							end
+
+							if StoreMdtCharacter(data.SID, character) then
 								if (data.JobId == "police" or data.JobId == "ems") then
 									local plyr = Fetch:SID(data.SID)
 									if plyr then
@@ -108,7 +103,7 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 									end
 								end
 							end
-						end)
+						end
 					end
 				else
 					cb(false)
@@ -154,24 +149,14 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 					cb(updated)
 
 					if updated then
-						Database.Game:updateOne({
-							collection = "characters",
-							query = {
-								SID = data.SID,
-							},
-							update = {
-								["$push"] = {
-									MDTHistory = {
-										Time = (os.time() * 1000),
-										Char = char:GetData("SID"),
-										Log = string.format(
-											"%s Promoted Them To %s",
-											char:GetData("First") .. " " .. char:GetData("Last"),
-											json.encode(newJobData)
-										),
-									},
-								},
-							},
+						PushCharacterHistory(data.SID, {
+							Time = (os.time() * 1000),
+							Char = char:GetData("SID"),
+							Log = string.format(
+								"%s Promoted Them To %s",
+								char:GetData("First") .. " " .. char:GetData("Last"),
+								json.encode(newJobData)
+							),
 						})
 					end
 				else

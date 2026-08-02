@@ -285,7 +285,6 @@ AddEventHandler("Ped:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Locations = exports["mythic-base"]:FetchComponent("Locations")
 	Routing = exports["mythic-base"]:FetchComponent("Routing")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
@@ -298,7 +297,6 @@ AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Ped", {
 		"Fetch",
 		"Callbacks",
-		"Database",
 		"Locations",
 		"Routing",
 		"Logger",
@@ -400,8 +398,6 @@ end)
 
 PED = {
 	Save = function(self, char, ped)
-		local p = promise.new()
-
 		-- On the Verge of Suicide (WHY??? Apparently it won't update in mongodb unless this is done) 
 		if ped?.customization?.face?.features and type(ped.customization.face.features) == "table" then
 			for k, v in pairs(ped.customization.face.features) do
@@ -409,29 +405,21 @@ PED = {
 			end
 		end
 
-		Database.Game:updateOne({
-			collection = "peds",
-			query = {
-				Char = char:GetData("ID"),
-			},
-			update = {
-				["$set"] = {
-					Ped = ped,
-				},
-			},
-			options = {
-				upsert = true,
-			},
-		}, function(success, results)
-			if not success then
-				return
-			end
-			char:SetData("Ped", ped)
+		local success = MySQL.query.await(
+			"INSERT INTO peds (Char, Ped) VALUES(?, ?) ON DUPLICATE KEY UPDATE Ped = VALUES(Ped)",
+			{
+				char:GetData("ID"),
+				json.encode(ped),
+			}
+		) ~= nil
 
-			p:resolve(success)
-		end)
+		if not success then
+			return false
+		end
 
-		return Citizen.Await(p)
+		char:SetData("Ped", ped)
+
+		return success
 	end,
 	ApplyOutfit = function(self, source, outfit)
 		local plyr = Fetch:Source(source)
@@ -776,46 +764,38 @@ function RegisterCallbacks()
 	Callbacks:RegisterServerCallback("Ped:CheckPed", function(source, data, cb)
 		local player = exports["mythic-base"]:FetchComponent("Fetch"):Source(source)
 		local char = player:GetData("Character")
-		Database.Game:findOne({
-			collection = "peds",
-			query = {
-				Char = char:GetData("ID"),
-			},
-		}, function(success, results)
-			if not success then
-				return
-			end
-			if #results == 0 then
-				local tmp = deepcopy(TemplateData)
+		local result = MySQL.single.await("SELECT Ped FROM peds WHERE Char = ?", { char:GetData("ID") })
 
+		if result == nil then
+			local tmp = deepcopy(TemplateData)
+
+			if char:GetData("Gender") == 0 then
+				tmp.model = "mp_m_freemode_01"
+			else
+				tmp.model = "mp_f_freemode_01"
+			end
+
+			char:SetData("Ped", tmp)
+			cb({
+				existed = false,
+				ped = tmp,
+			})
+		else
+			local tmp = json.decode(result.Ped)
+			if tmp.model == "" then
 				if char:GetData("Gender") == 0 then
 					tmp.model = "mp_m_freemode_01"
 				else
 					tmp.model = "mp_f_freemode_01"
 				end
-
-				char:SetData("Ped", tmp)
-				cb({
-					existed = false,
-					ped = tmp,
-				})
-			else
-				local tmp = results[1].Ped
-				if tmp.model == "" then
-					if char:GetData("Gender") == 0 then
-						tmp.model = "mp_m_freemode_01"
-					else
-						tmp.model = "mp_f_freemode_01"
-					end
-				end
-
-				char:SetData("Ped", tmp)
-				cb({
-					existed = true,
-					ped = tmp,
-				})
 			end
-		end)
+
+			char:SetData("Ped", tmp)
+			cb({
+				existed = true,
+				ped = tmp,
+			})
+		end
 	end)
 
 	Callbacks:RegisterServerCallback("Ped:MakePayment", function(source, data, cb)

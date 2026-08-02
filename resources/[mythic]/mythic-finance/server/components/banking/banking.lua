@@ -8,64 +8,85 @@ function GenerateBankAccountNumber()
 end
 
 function IsAccountNumberInUse(account)
-    local p = promise.new()
+    local count = MySQL.scalar.await('SELECT COUNT(*) FROM bank_accounts WHERE Account = ?', { account })
 
-    Database.Game:find({
-        collection = 'bank_accounts',
-        query = {
-            Account = account
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(true)
-        else
-            p:resolve(false)
+    return count ~= nil and count > 0
+end
+
+function DecodeBankAccount(row)
+    if row == nil then
+        return false
+    end
+
+    local account = json.decode(row.account)
+    account._id = row.id
+    account.Account = row.Account
+    account.Balance = row.Balance
+
+    return account
+end
+
+function BuildAccountQuery(query)
+    local clauses, params = {}, {}
+
+    for k, v in pairs(query) do
+        if k == 'Account' or k == 'Type' or k == 'Owner' or k == 'Name' then
+            table.insert(clauses, string.format('`%s` = ?', k))
+            table.insert(params, v)
+        elseif k == '$or' then
+            local ors = {}
+            for k2, condition in ipairs(v) do
+                for k3, val in pairs(condition) do
+                    if k3 == 'JointOwners' then
+                        table.insert(ors, "JSON_CONTAINS(JSON_EXTRACT(account, '$.JointOwners'), CAST(? AS JSON))")
+                        table.insert(params, json.encode(val))
+                    else
+                        table.insert(ors, string.format('`%s` = ?', k3))
+                        table.insert(params, val)
+                    end
+                end
+            end
+            table.insert(clauses, string.format('(%s)', table.concat(ors, ' OR ')))
         end
-    end)
+    end
 
-    local res = Citizen.Await(p)
-    return res
+    if #clauses == 0 then
+        return '1 = 1', params
+    end
+
+    return table.concat(clauses, ' AND '), params
 end
 
 function FindBankAccount(query)
-    local p = promise.new()
+    local where, params = BuildAccountQuery(query)
 
-    Database.Game:findOne({
-        collection = 'bank_accounts',
-        query = query,
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results[1])
-        else
-            p:resolve(false)
-        end
-    end)
-
-    local res = Citizen.Await(p)
-    return res
+    return DecodeBankAccount(MySQL.single.await(
+        string.format('SELECT * FROM bank_accounts WHERE %s', where),
+        params
+    ))
 end
 
 function FindBankAccounts(query)
-    local p = promise.new()
+    local where, params = BuildAccountQuery(query)
+    local rows = MySQL.query.await(
+        string.format('SELECT * FROM bank_accounts WHERE %s', where),
+        params
+    )
 
-    Database.Game:find({
-        collection = 'bank_accounts',
-        query = query,
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results)
-        else
-            p:resolve(false)
-        end
-    end)
+    if #rows == 0 then
+        return false
+    end
 
-    local res = Citizen.Await(p)
-    return res
+    local accounts = {}
+    for k, v in ipairs(rows) do
+        table.insert(accounts, DecodeBankAccount(v))
+    end
+
+    return accounts
 end
 
 function CreateBankAccount(document)
     if type(document) ~= 'table' then return false end
-    local p = promise.new()
 
     if not document.Account then
         document.Account = GenerateBankAccountNumber()
@@ -79,63 +100,88 @@ function CreateBankAccount(document)
         document.Balance = 0
     end
 
-    Database.Game:insertOne({
-        collection = 'bank_accounts',
-        document = document,
-    }, function(success, inserted, insertedIds)
-        if success and inserted > 0 then
-            document._id = insertedIds[1]
-            p:resolve(document)
-        else
-            p:resolve(false)
-        end
-    end)
+    local insertedId = MySQL.insert.await(
+        'INSERT INTO bank_accounts (Account, Type, Owner, Name, Balance, account) VALUES(?, ?, ?, ?, ?, ?)',
+        {
+            document.Account,
+            document.Type,
+            document.Owner,
+            document.Name,
+            document.Balance,
+            json.encode(document),
+        }
+    )
 
-    local res = Citizen.Await(p)
-    return res
+    if insertedId == nil then
+        return false
+    end
+
+    document._id = insertedId
+
+    return document
 end
 
 function UpdateBankAccount(searchQuery, updateQuery)
-    local p = promise.new()
+    local where, params = BuildAccountQuery(searchQuery)
+    local clauses, setParams = {}, {}
 
-    Database.Game:findOneAndUpdate({
-        collection = 'bank_accounts',
-        query = searchQuery,
-        update = updateQuery,
-        options = {
-            returnDocument = 'after',
-        }
-    }, function(success, results)
-        if success and results then
-            p:resolve(results)
-        else
-            p:resolve(false)
+    for op, fields in pairs(updateQuery) do
+        for k, v in pairs(fields) do
+            if op == '$inc' and k == 'Balance' then
+                table.insert(clauses, 'Balance = Balance + ?')
+                table.insert(setParams, v)
+            elseif op == '$set' and (k == 'Name' or k == 'Balance' or k == 'Owner' or k == 'Type') then
+                table.insert(clauses, string.format('`%s` = ?', k))
+                table.insert(setParams, v)
+            elseif op == '$set' then
+                table.insert(clauses, "account = JSON_SET(account, ?, CAST(? AS JSON))")
+                table.insert(setParams, string.format('$."%s"', k))
+                table.insert(setParams, json.encode(v))
+            elseif op == '$push' then
+                table.insert(clauses, "account = JSON_ARRAY_APPEND(COALESCE(account, '{}'), ?, CAST(? AS JSON))")
+                table.insert(setParams, string.format('$."%s"', k))
+                table.insert(setParams, json.encode(v))
+            end
         end
-    end)
+    end
 
-    local res = Citizen.Await(p)
-    return res
+    if #clauses == 0 then
+        return false
+    end
+
+    for k, v in ipairs(params) do
+        table.insert(setParams, v)
+    end
+
+    local updated = MySQL.query.await(
+        string.format('UPDATE bank_accounts SET %s WHERE %s', table.concat(clauses, ', '), where),
+        setParams
+    )
+
+    if updated == nil then
+        return false
+    end
+
+    return FindBankAccount(searchQuery)
 end
 
 function FindBankAccountTransactions(query)
     local p = promise.new()
 
-    Database.Game:find({
-        collection = 'bank_accounts_transactions',
-        query = query,
-        options = {
-            limit = 80,
-            sort = {
-                Timestamp = -1
-            }
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results)
-        else
-            p:resolve(false)
+    local rows = MySQL.query.await(
+        'SELECT * FROM bank_accounts_transactions WHERE Account = ? ORDER BY Timestamp DESC LIMIT 80',
+        { query.Account }
+    )
+
+    if #rows > 0 then
+        local transactions = {}
+        for k, v in ipairs(rows) do
+            table.insert(transactions, json.decode(v.transaction))
         end
-    end)
+        p:resolve(transactions)
+    else
+        p:resolve(false)
+    end
 
     local res = Citizen.Await(p)
     return res

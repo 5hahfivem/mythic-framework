@@ -1,20 +1,11 @@
 function GetCharacterCreditScore(stateId)
-    local p = promise.new()
-    Database.Game:findOne({
-        collection = 'loans_credit_scores',
-        query = {
-            SID = stateId,
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results[1].Score)
-        else
-            p:resolve(_creditScoreConfig.default)
-        end
-    end)
+    local result = MySQL.single.await('SELECT Score FROM loans_credit_scores WHERE SID = ?', { stateId })
 
-    local res = Citizen.Await(p)
-    return res
+    if result == nil then
+        return _creditScoreConfig.default
+    end
+
+    return result.Score
 end
 
 function SetCharacterCreditScore(stateId, score)
@@ -28,27 +19,18 @@ function SetCharacterCreditScore(stateId, score)
         score = _creditScoreConfig.min
     end
 
-    Database.Game:findOneAndUpdate({
-        collection = 'loans_credit_scores',
-        query = {
-            SID = stateId,
-        },
-        update = {
-            ['$set'] = {
-                Score = score,
-            },
-        },
-        options = {
-            returnDocument = 'after',
-            upsert = true,
-        }
-    }, function(success, results)
-        if success and results then
-            p:resolve(results.Score)
+    local success = MySQL.query.await(
+        'INSERT INTO loans_credit_scores (SID, Score) VALUES(?, ?) ON DUPLICATE KEY UPDATE Score = VALUES(Score)',
+        { stateId, score }
+    ) ~= nil
+
+    do
+        if success then
+            p:resolve(score)
         else
             p:resolve(false)
         end
-    end)
+    end
 
     local res = Citizen.Await(p)
     return res

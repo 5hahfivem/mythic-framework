@@ -46,27 +46,26 @@ AddEventHandler("Core:Shared:Ready", function()
         },
     })
 
-	COMPONENTS.Database.Auth:find({
-		collection = "roles",
-		query = {},
-	}, function(success, results)
-		if not success or #results <= 0 then
-			COMPONENTS.Logger:Critical("Core", "Failed to Load User Groups", {
-				console = true,
-				file = true,
-			})
+	local results = MySQL.query.await("SELECT * FROM roles", {})
 
-			return
-		end
-
-		COMPONENTS.Config.Groups = {}
-
-		for k, v in ipairs(results) do
-			COMPONENTS.Config.Groups[v.Abv] = v
-		end
-
-		COMPONENTS.Logger:Info("Core", string.format("Loaded %s User Groups", #results), {
+	if #results <= 0 then
+		COMPONENTS.Logger:Critical("Core", "Failed to Load User Groups", {
 			console = true,
+			file = true,
 		})
-	end)
+
+		return
+	end
+
+	COMPONENTS.Config.Groups = {}
+
+	for k, v in ipairs(results) do
+		v.Queue = json.decode(v.Queue)
+		v.Permission = json.decode(v.Permission)
+		COMPONENTS.Config.Groups[v.Abv] = v
+	end
+
+	COMPONENTS.Logger:Info("Core", string.format("Loaded %s User Groups", #results), {
+		console = true,
+	})
 end)

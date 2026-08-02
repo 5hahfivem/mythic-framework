@@ -46,16 +46,7 @@ AddEventHandler("Core:Server:StartupReady", function()
 			Wait(1)
 		end
 
-		TriggerEvent(
-			"Database:Server:Initialize",
-			COMPONENTS.Convar.AUTH_URL.value,
-			COMPONENTS.Convar.AUTH_DB.value,
-			COMPONENTS.Convar.GAME_URL.value,
-			COMPONENTS.Convar.GAME_DB.value
-		)
-		while not COMPONENTS.Proxy.DatabaseReady do
-			Wait(1)
-		end
+		TriggerEvent("Core:Shared:Ready")
 
 		TriggerEvent("Proxy:Shared:RegisterReady")
 		for k, v in pairs(COMPONENTS) do
@@ -77,14 +68,6 @@ CreateThread(function()
 		GlobalState["OS:Time"] = os.time()
 		Wait(1000)
 	end
-end)
-
-AddEventHandler("Database:Server:Ready", function(db)
-	if COMPONENTS.Database == nil and db ~= nil then
-		COMPONENTS.Database = db
-	end
-	COMPONENTS.Proxy.DatabaseReady = true
-	TriggerEvent("Core:Shared:Ready")
 end)
 
 RegisterNetEvent("Core:Server:ResourceStopped", function(resource)

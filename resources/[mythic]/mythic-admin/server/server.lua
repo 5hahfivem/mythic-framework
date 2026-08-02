@@ -1,6 +1,5 @@
 AddEventHandler("Admin:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
@@ -19,7 +18,6 @@ end
 
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Admin", {
-		"Database",
 		"Logger",
 		"Callbacks",
 		"Fetch",
@@ -104,33 +102,30 @@ function RegisterChatCommands()
 					)
 				)
 			else
-				Database.Game:findOne({
-					collection = "characters",
-					query = {
-						SID = tonumber(args[1]),
-					},
-				}, function(success, tChar)
-					if #tChar == 0 then
-						Chat.Send.System:Single(source, "Invalid State ID")
-					else
-						local tUser = WebAPI.GetMember:AccountID(tChar[1].User)
-						if tUser ~= nil then
-							Chat.Send.System:Single(
-								source,
-								string.format(
-									str,
-									tChar[1].User,
-									tUser.name,
-									tChar[1].SID,
-									string.format("%s %s", tChar[1].First, tChar[1].Last),
-									(tChar[1].Deleted and "Yes" or "No")
-								)
+				local tChar = MySQL.single.await("SELECT User, SID, First, Last, Deleted FROM characters WHERE SID = ?", {
+					tonumber(args[1]),
+				})
+
+				if tChar == nil then
+					Chat.Send.System:Single(source, "Invalid State ID")
+				else
+					local tUser = WebAPI.GetMember:AccountID(tChar.User)
+					if tUser ~= nil then
+						Chat.Send.System:Single(
+							source,
+							string.format(
+								str,
+								tChar.User,
+								tUser.name,
+								tChar.SID,
+								string.format("%s %s", tChar.First, tChar.Last),
+								(tChar.Deleted == 1 and "Yes" or "No")
 							)
-						else
-							Chat.Send.System:Single(source, "Invalid State ID")
-						end
+						)
+					else
+						Chat.Send.System:Single(source, "Invalid State ID")
 					end
-				end)
+				end
 			end
 		else
 			Chat.Send.System:Single(source, "Invalid State ID")

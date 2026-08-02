@@ -5,7 +5,6 @@ function RetrieveCryptoComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
 	Utils = exports["mythic-base"]:FetchComponent("Utils")
     Execute = exports["mythic-base"]:FetchComponent("Execute")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
     Chat = exports["mythic-base"]:FetchComponent("Chat")
@@ -29,7 +28,6 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Utils",
         "Execute",
         "Chat",
-		"Database",
 		"Middleware",
 		"Callbacks",
 		"Logger",
@@ -236,22 +234,7 @@ _CRYPTO = {
 
 				return true
 			else
-				local p = promise.new()
-				Database.Game:updateOne({
-					collection = "characters",
-					query = {
-						CryptoWallet = target,
-					},
-					update = {
-						["$inc"] = {
-							[string.format("Crypto.%s", coin)] = amount,
-						},
-					},
-				}, function(success, res)
-					p:resolve(success)
-				end)
-
-				return Citizen.Await(p)
+				return AdjustOfflineCrypto(target, coin, amount)
 			end
 		end,
 		Remove = function(self, coin, target, amount, skipAlert)
@@ -286,36 +269,15 @@ _CRYPTO = {
 					p:resolve(false)
 				end
 			else
-				Database.Game:findOne({
-					collection = "characters",
-					query = {
-						CryptoWallet = target,
-					},
-				}, function(success, res)
-					if #res == 0 then
-						p:resolve(false)
-						return
-					else
-						if res[1].Crypto[coin] >= amount then
-							Database.Game:updateOne({
-								collection = "characters",
-								query = {
-									CryptoWallet = target,
-								},
-								update = {
-									["$inc"] = {
-										[string.format("Crypto.%s", coin)] = amount,
-									},
-								},
-							}, function(success, res)
-								p:resolve(success)
-							end)
-						else
-							p:resolve(false)
-							return
-						end
-					end
-				end)
+				local balance = FetchOfflineCrypto(target, coin)
+
+				if balance == nil then
+					p:resolve(false)
+				elseif balance >= amount then
+					p:resolve(AdjustOfflineCrypto(target, coin, amount))
+				else
+					p:resolve(false)
+				end
 			end
 
 			return Citizen.Await(p)
@@ -368,3 +330,32 @@ _CRYPTO = {
 AddEventHandler("Proxy:Shared:RegisterReady", function()
 	exports["mythic-base"]:RegisterComponent("Crypto", _CRYPTO)
 end)
+
+function FetchOfflineCrypto(wallet, coin)
+	local row = MySQL.single.await(
+		[[SELECT `character` FROM characters WHERE JSON_EXTRACT(`character`, '$.CryptoWallet') = ?]],
+		{ wallet }
+	)
+
+	if row == nil then
+		return nil
+	end
+
+	local character = json.decode(row.character)
+
+	return (character.Crypto and character.Crypto[coin]) or 0
+end
+
+function AdjustOfflineCrypto(wallet, coin, amount)
+	local current = FetchOfflineCrypto(wallet, coin)
+
+	if current == nil then
+		return false
+	end
+
+	return MySQL.query.await(
+		[[UPDATE characters SET `character` = JSON_SET(`character`, ?, ?)
+			WHERE JSON_EXTRACT(`character`, '$.CryptoWallet') = ?]],
+		{ string.format('$.Crypto."%s"', coin), current + amount, wallet }
+	) ~= nil
+end

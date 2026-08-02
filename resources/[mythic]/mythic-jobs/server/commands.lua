@@ -1,21 +1,11 @@
 function FetchCharacterJobsFromDB(stateId)
-    local p = promise.new()
+    local charData = FetchCharacterBySID(stateId)
 
-    Database.Game:findOne({
-        collection = 'characters',
-        query = {
-            SID = stateId,
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results[1].Jobs or {})
-        else
-            p:resolve(false)
-        end
-    end)
+    if not charData then
+        return false
+    end
 
-    local res = Citizen.Await(p)
-    return res
+    return charData.Jobs or {}
 end
 
 function RegisterJobChatCommands()

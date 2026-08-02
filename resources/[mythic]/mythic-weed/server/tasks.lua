@@ -10,14 +10,13 @@ AddEventHandler("Core:Server:ForceSave", function()
 	end
 	if #docs > 0 then
 		Logger:Info("Weed", string.format("Saving ^2%s^7 Plants", #docs))
-		Database.Game:delete({
-			collection = "weed",
-		}, function(success)
-			Database.Game:insert({
-				collection = "weed",
-				documents = docs,
-			})
-		end)
+		local plants = {}
+		for k, v in ipairs(docs) do
+			table.insert(plants, { v._id, v.planted, json.encode(v) })
+		end
+
+		MySQL.query.await("DELETE FROM weed", {})
+		MySQL.prepare.await("INSERT INTO weed (id, planted, plant) VALUES(?, ?, ?)", plants)
 	end
 end)
 
@@ -36,14 +35,13 @@ function RegisterTasks()
 			end
 			if #docs > 0 then
 				Logger:Info("Weed", string.format("Saving ^2%s^7 Plants", #docs))
-				Database.Game:delete({
-					collection = "weed",
-				}, function(success)
-					Database.Game:insert({
-						collection = "weed",
-						documents = docs,
-					})
-				end)
+				local plants = {}
+				for k, v in ipairs(docs) do
+					table.insert(plants, { v._id, v.planted, json.encode(v) })
+				end
+
+				MySQL.query.await("DELETE FROM weed", {})
+				MySQL.prepare.await("INSERT INTO weed (id, planted, plant) VALUES(?, ?, ?)", plants)
 			end
 		end
 	end)

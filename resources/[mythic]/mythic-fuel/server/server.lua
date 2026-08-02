@@ -1,7 +1,6 @@
 AddEventHandler('Fuel:Shared:DependencyUpdate', RetrieveComponents)
 function RetrieveComponents()
     Callbacks = exports['mythic-base']:FetchComponent('Callbacks')
-    Database = exports['mythic-base']:FetchComponent('Database')
     Utils = exports['mythic-base']:FetchComponent('Utils')
     Fetch = exports['mythic-base']:FetchComponent('Fetch')
     Logger = exports['mythic-base']:FetchComponent('Logger')
@@ -19,7 +18,6 @@ local depositData = {
 AddEventHandler('Core:Shared:Ready', function()
     exports['mythic-base']:RequestDependencies('Fuel', {
         'Callbacks',
-        'Database',
         'Utils',
         'Fetch',
         'Logger',

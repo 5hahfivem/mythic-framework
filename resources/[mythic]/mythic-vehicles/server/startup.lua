@@ -4,27 +4,15 @@ function Startup()
     if _ran then return end
     _ran = true
 
-    Database.Game:count({
-        collection = 'vehicles',
-        query = {
-            ['Owner.Type'] = 0,
-        }
-    }, function(success, count)
-        if success then
-            Logger:Trace('Vehicles', string.format('Loaded ^2%s^7 Character Owned Vehicles', count))
-        end
-    end)
+    local ownedCount = MySQL.scalar.await('SELECT COUNT(*) FROM vehicles WHERE ownerType = 0', {})
+    if ownedCount ~= nil then
+        Logger:Trace('Vehicles', string.format('Loaded ^2%s^7 Character Owned Vehicles', ownedCount))
+    end
 
-    Database.Game:count({
-        collection = 'vehicles',
-        query = {
-            ['Owner.Type'] = 1,
-        }
-    }, function(success, count)
-        if success then
-            Logger:Trace('Vehicles', string.format('Loaded ^2%s^7 Fleet Owned Vehicles', count))
-        end
-    end)
+    local fleetCount = MySQL.scalar.await('SELECT COUNT(*) FROM vehicles WHERE ownerType = 1', {})
+    if fleetCount ~= nil then
+        Logger:Trace('Vehicles', string.format('Loaded ^2%s^7 Fleet Owned Vehicles', fleetCount))
+    end
 
     CreateThread(function()
         -- Let the server startup, no vehicles need to be saved in the first 2 mins
@@ -61,4 +49,37 @@ function Startup()
             end
         end
     end)
+end
+
+function VehicleUpdateQuery(where)
+    return string.format(
+        'UPDATE vehicles SET Type = ?, RegisteredPlate = ?, FakePlate = ?, Make = ?, Model = ?, ownerType = ?, ownerId = ?, ownerWorkplace = ?, ownerLevel = ?, storageType = ?, storageId = ?, vehicle = ? WHERE %s',
+        where
+    )
+end
+
+function VehicleParams(data, VIN)
+    return {
+        data.Type,
+        data.RegisteredPlate,
+        data.FakePlate or '',
+        data.Make or 'Unknown',
+        data.Model or 'Unknown',
+        data.Owner?.Type or 0,
+        data.Owner?.Id or 0,
+        data.Owner?.Workplace or '',
+        data.Owner?.Level or 0,
+        data.Storage?.Type or 0,
+        data.Storage?.Id or 0,
+        json.encode(data),
+        VIN,
+    }
+end
+
+function VehicleInsertParams(data)
+    local params = VehicleParams(data, data.VIN)
+    table.remove(params)
+    table.insert(params, 1, data.VIN)
+
+    return params
 end

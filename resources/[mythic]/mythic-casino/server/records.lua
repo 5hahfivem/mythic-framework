@@ -3,49 +3,42 @@ function UpdateCharacterCasinoStats(source, statType, isWin, amount)
     if plyr then
         local char = plyr:GetData("Character")
         if char then
-            local p = promise.new()
+            local sid = char:GetData("SID")
+            local result = MySQL.single.await("SELECT stats FROM casino_statistics WHERE SID = ?", { sid })
+            local stats = result and json.decode(result.stats) or {}
 
-            local update = {
-                ["$push"] = {
-                    [statType] = {
-                        Win = isWin,
-                        Amount = amount,
-                    },
-                },
-            }
-
-            if isWin then
-                update["$inc"] = {
-                    TotalAmountWon = amount,
-                    [string.format("AmountWon.%s", statType)] = amount,
-                }
-            else
-                update["$inc"] = {
-                    TotalAmountLost = amount,
-                    [string.format("AmountLost.%s", statType)] = amount,
-                }
+            if stats[statType] == nil then
+                stats[statType] = {}
             end
 
-            Database.Game:findOneAndUpdate({
-                collection = "casino_statistics",
-                query = {
-                    SID = char:GetData("SID"),
-                },
-                update = update,
-                options = {
-                    returnDocument = "after",
-                    upsert = true,
-                }
-            }, function(success, results)
-                if success and results then
-                    p:resolve(results)
-                else
-                    p:resolve(false)
-                end
-            end)
+            table.insert(stats[statType], {
+                Win = isWin,
+                Amount = amount,
+            })
 
-            local res = Citizen.Await(p)
-            return res
+            if isWin then
+                stats.AmountWon = stats.AmountWon or {}
+                stats.TotalAmountWon = (stats.TotalAmountWon or 0) + amount
+                stats.AmountWon[statType] = (stats.AmountWon[statType] or 0) + amount
+            else
+                stats.AmountLost = stats.AmountLost or {}
+                stats.TotalAmountLost = (stats.TotalAmountLost or 0) + amount
+                stats.AmountLost[statType] = (stats.AmountLost[statType] or 0) + amount
+            end
+
+            local updated = MySQL.query.await(
+                "INSERT INTO casino_statistics (SID, stats) VALUES(?, ?) ON DUPLICATE KEY UPDATE stats = VALUES(stats)",
+                {
+                    sid,
+                    json.encode(stats),
+                }
+            )
+
+            if not updated then
+                return false
+            end
+
+            return stats
         end
     end
     return false
@@ -56,28 +49,23 @@ function SaveCasinoBigWin(source, machine, prize, data)
     if plyr then
         local char = plyr:GetData("Character")
         if char then
-            local p = promise.new()
-
-            Database.Game:insertOne({
-                collection = 'casino_bigwins',
-                document = {
-                    Type = machine,
-                    Time = os.time(),
-                    Winner = {
+            local id = MySQL.insert.await(
+                'INSERT INTO casino_bigwins (Type, Time, Winner, Prize, MetaData) VALUES(?, ?, ?, ?, ?)',
+                {
+                    machine,
+                    os.time(),
+                    json.encode({
                         SID = char:GetData("SID"),
                         First = char:GetData("First"),
                         Last = char:GetData("Last"),
                         ID = char:GetData("ID"),
-                    },
-                    Prize = prize,
-                    MetaData = data,
+                    }),
+                    prize,
+                    json.encode(data),
                 }
-            }, function(success, result)
-                p:resolve(success)
-            end)
+            )
 
-            local res = Citizen.Await(p)
-            return res
+            return id ~= nil
         end
     end
     return false

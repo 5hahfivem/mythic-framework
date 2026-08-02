@@ -4,18 +4,11 @@ function RunLoanStartup()
     if _ranStartup then return end
     _ranStartup = true
 
-    Database.Game:count({
-        collection = 'loans',
-        query = {
-            Remaining = {
-                ['$gt'] = 0,
-            }
-        }
-    }, function(success, count)
-        if success then
-            Logger:Trace('Loans', 'Loaded ^2' .. count .. '^7 Active Loans')
-        end
-    end)
+    local count = MySQL.scalar.await('SELECT COUNT(*) FROM loans WHERE Remaining > 0', {})
+
+    if count ~= nil then
+        Logger:Trace('Loans', 'Loaded ^2' .. count .. '^7 Active Loans')
+    end
 end
 
 AddEventHandler('Finance:Server:Startup', function()
@@ -30,174 +23,98 @@ function CreateLoanTasks()
     --RegisterCommand('testloans', function()
         local TASK_RUN_TIMESTAMP = os.time()
 
-        Database.Game:aggregate({
-            collection = 'loans',
-            aggregate = {
-                {
-                    ['$match'] = {
-                        ['$and'] = {
-                            { -- Due now
-                                NextPayment = { 
-                                    ['$gt'] = 0,
-                                    ['$lte'] = (TASK_RUN_TIMESTAMP)
-                                }
-                            },
-                            { -- There is still cost remaining
-                                Defaulted = false,
-                                Remaining = { 
-                                    ['$gte'] = 0 
-                                } 
-                            },
-                        }
-                    }
-                },
-                {
-                    ['$set'] = {
-                        InterestRate = {
-                            ['$add'] = { '$InterestRate', _loanConfig.missedPayments.interestIncrease }
-                        },
-                        LastMissedPayment = TASK_RUN_TIMESTAMP,
-                        MissedPayments = {
-                            ['$add'] = { '$MissedPayments', 1 },
-                        },
-                        TotalMissedPayments = {
-                            ['$add'] = { '$TotalMissedPayments', 1 },
-                        },
-                        NextPayment = {
-                            ['$add'] = { '$NextPayment', _loanConfig.paymentInterval },
-                        },
-                        Remaining = {
-                            ['$add'] = { 
-                                '$Remaining',
-                                { ['$multiply'] = { '$Total', (_loanConfig.missedPayments.charge / 100) } }
-                            }
-                        }
-                    },
-                },
-                {
-                    ['$merge'] = {
-                        into = 'loans',
-                        on = '_id',
-                        whenMatched = 'replace',
-                        whenNotMatched = 'discard',
-                    }
-                }
+        local applied = MySQL.query.await(
+            [[UPDATE loans SET
+                InterestRate = InterestRate + ?,
+                LastMissedPayment = ?,
+                MissedPayments = MissedPayments + 1,
+                TotalMissedPayments = TotalMissedPayments + 1,
+                NextPayment = NextPayment + ?,
+                Remaining = Remaining + (Total * ?)
+                WHERE NextPayment > 0 AND NextPayment <= ? AND Defaulted = 0 AND Remaining >= 0]],
+            {
+                _loanConfig.missedPayments.interestIncrease,
+                TASK_RUN_TIMESTAMP,
+                _loanConfig.paymentInterval,
+                (_loanConfig.missedPayments.charge / 100),
+                TASK_RUN_TIMESTAMP,
             }
-        }, function(success, results)
-            if success then
-                -- Get All the Loans are now need to be defaulted and notify/seize
-                Database.Game:find({
-                    collection = 'loans',
-                    query = {
-                        ['$expr'] = {
-                            ['$gte'] = {
-                                "$MissedPayments",
-                                "$MissablePayments"
-                            }
-                        },
-                        Defaulted = false,
-                    }
-                }, function(success, results)
-                    if success and #results > 0 then
-                        local updatingAssets = {}
+        )
 
-                        for k, v in ipairs(results) do
-                            table.insert(updatingAssets, v.AssetIdentifier)
+        if applied ~= nil then
+            -- Get All the Loans are now need to be defaulted and notify/seize
+            local results = MySQL.query.await(
+                'SELECT * FROM loans WHERE MissedPayments >= MissablePayments AND Defaulted = 0',
+                {}
+            )
+
+            if #results > 0 then
+                local updatingAssets = {}
+
+                for k, v in ipairs(results) do
+                    table.insert(updatingAssets, v.AssetIdentifier)
+                end
+
+                local updated = MySQL.query.await(
+                    string.format(
+                        'UPDATE loans SET Defaulted = 1 WHERE AssetIdentifier IN (%s)',
+                        string.rep('?, ', #updatingAssets - 1) .. '?'
+                    ),
+                    updatingAssets
+                )
+
+                if updated ~= nil then
+                    Logger:Info('Loans', '^2' .. #results .. '^7 Loans Have Just Been Defaulted')
+                    for k, v in ipairs(results) do
+                        if v.SID then
+                            DecreaseCharacterCreditScore(v.SID, _creditScoreConfig.removal.defaultedLoan)
+                            local onlineChar = Fetch:SID(v.SID)
+                            if onlineChar then
+                                SendDefaultedLoanNotification(onlineChar:GetData('Source'), v)
+                            end
                         end
 
-                        Database.Game:update({
-                            collection = 'loans',
-                            query = {
-                                AssetIdentifier = {
-                                    ['$in'] = updatingAssets
-                                }
-                            },
-                            update = {
-                                ['$set'] = {
-                                    Defaulted = true,
-                                }
-                            }
-                        }, function(success, updated)
-                            if success then
-                                Logger:Info('Loans', '^2' .. #results .. '^7 Loans Have Just Been Defaulted')
-                                for k, v in ipairs(results) do
-                                    if v.SID then
-                                        DecreaseCharacterCreditScore(v.SID, _creditScoreConfig.removal.defaultedLoan)
-                                        local onlineChar = Fetch:SID(v.SID)
-                                        if onlineChar then
-                                            SendDefaultedLoanNotification(onlineChar:GetData('Source'), v)
-                                        end
-                                    end
-
-                                    if v.AssetIdentifier then
-                                        if v.Type == 'vehicle' then
-                                            Vehicles.Owned:Seize(v.AssetIdentifier, true)
-                                        elseif v.Type == 'property' then
-                                            -- TODO: PROPERTY TEMP SEIZURE
-                                        end
-                                    end
-                                end
-                            end
-                        end)
-                    end
-                end)
-
-                -- Notify if someone just missed a payment.
-                Database.Game:find({
-                    collection = 'loans',
-                    query = {
-                        ['$expr'] = {
-                            ['$lt'] = {
-                                "$MissedPayments",
-                                "$MissablePayments"
-                            }
-                        },
-                        Defaulted = false,
-                        LastMissedPayment = TASK_RUN_TIMESTAMP,
-                    }
-                }, function(success, results)
-                    if success and #results > 0 then
-                        Logger:Info('Loans', '^2' .. #results .. '^7 Loan Payments Were Just Missed')
-                        for k, v in ipairs(results) do
-                            if v.SID then
-                                DecreaseCharacterCreditScore(v.SID, _creditScoreConfig.removal.missedLoanPayment)
-
-                                local onlineChar = Fetch:SID(v.SID)
-                                if onlineChar then
-                                    SendMissedLoanNotification(onlineChar:GetData('Source'), v)
-                                end
+                        if v.AssetIdentifier then
+                            if v.Type == 'vehicle' then
+                                Vehicles.Owned:Seize(v.AssetIdentifier, true)
+                            elseif v.Type == 'property' then
+                                -- TODO: PROPERTY TEMP SEIZURE
                             end
                         end
                     end
-                end)
+                end
             end
-        end)
+
+            -- Notify if someone just missed a payment.
+            local results = MySQL.query.await(
+                'SELECT * FROM loans WHERE MissedPayments < MissablePayments AND Defaulted = 0 AND LastMissedPayment = ?',
+                { TASK_RUN_TIMESTAMP }
+            )
+
+            if #results > 0 then
+                Logger:Info('Loans', '^2' .. #results .. '^7 Loan Payments Were Just Missed')
+                for k, v in ipairs(results) do
+                    if v.SID then
+                        DecreaseCharacterCreditScore(v.SID, _creditScoreConfig.removal.missedLoanPayment)
+
+                        local onlineChar = Fetch:SID(v.SID)
+                        if onlineChar then
+                            SendMissedLoanNotification(onlineChar:GetData('Source'), v)
+                        end
+                    end
+                end
+            end
+        end
     end)
 
     Tasks:Register('loan_reminder', 120, function()
         local TASK_RUN_TIMESTAMP = os.time()
         -- Get All Loans That are Due Soon
-        Database.Game:find({
-            collection = 'loans',
-            query = {
-                Remaining = {
-                    ['$gt'] = 0,
-                },
-                Defaulted = false,
-                ['$or'] = {
-                    { -- The payment is due soon
-                        NextPayment = {
-                            ['$gt'] = 0,
-                            ['$lte'] = (TASK_RUN_TIMESTAMP + (60 * 60 * 6)), -- Payment is due within the next 6 hours
-                        }
-                    },
-                    { -- The last payment was missed, annoy them by constantly sending them notifications
-                        MissedPayments = {
-                            ['$gt'] = 0,
-                        }
-                    },
-                }
-            }
+        local results = MySQL.query.await(
+            [[SELECT * FROM loans
+                WHERE Remaining > 0 AND Defaulted = 0
+                    AND ((NextPayment > 0 AND NextPayment <= ?) OR MissedPayments > 0)]],
+            { (TASK_RUN_TIMESTAMP + (60 * 60 * 6)) }
         }, function(success, results)
             print("this might hitch the server (loan_reminder task)")
             if success and #results > 0 then

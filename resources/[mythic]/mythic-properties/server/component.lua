@@ -4,7 +4,6 @@ function RetrieveComponents()
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Default = exports["mythic-base"]:FetchComponent("Default")
 	Chat = exports["mythic-base"]:FetchComponent("Chat")
 	Properties = exports["mythic-base"]:FetchComponent("Properties")
@@ -28,7 +27,6 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Middleware",
 		"Logger",
 		"Fetch",
-		"Database",
 		"Default",
 		"Chat",
 		"Properties",
@@ -65,7 +63,6 @@ PROPERTIES = {
 		Add = function(self, source, type, interior, price, label, pos)
 			if PropertyTypes[type] then
 				if PropertyInteriors[interior] and PropertyInteriors[interior].type == type then
-					local p = promise.new()
 					local doc = {
 						type = type,
 						label = label,
@@ -80,31 +77,36 @@ PROPERTIES = {
 						}
 					}
 	
-					Database.Game:insertOne({
-						collection = "properties",
-						document = doc,
-					}, function(success, result, insertedIds)
-						if success then
-							doc.id = insertedIds[1]
-							doc.interior = interior
-							doc.locked = true
-	
-							for k, v in pairs(doc.location) do
-								for k2, v2 in pairs(v) do
-									doc.location[k][k2] = doc.location[k][k2] + 0.0
-								end
+					local id = MySQL.insert.await(
+						"INSERT INTO properties (type, label, price, sold, location, upgrades) VALUES(?, ?, ?, 0, ?, ?)",
+						{
+							doc.type,
+							doc.label,
+							doc.price,
+							json.encode(doc.location),
+							json.encode(doc.upgrades),
+						}
+					)
+
+					if id ~= nil then
+						doc.id = id
+						doc.interior = interior
+						doc.locked = true
+
+						for k, v in pairs(doc.location) do
+							for k2, v2 in pairs(v) do
+								doc.location[k][k2] = doc.location[k][k2] + 0.0
 							end
-	
-							_properties[doc.id] = doc
-	
-							Chat.Send.Server:Single(source, "Property Added, Property ID: " .. doc.id)
-	
-							TriggerClientEvent("Properties:Client:Update", -1, doc.id, doc)
 						end
-	
-						p:resolve(success)
-					end)
-					return Citizen.Await(p)
+
+						_properties[doc.id] = doc
+
+						Chat.Send.Server:Single(source, "Property Added, Property ID: " .. doc.id)
+
+						TriggerClientEvent("Properties:Client:Update", -1, doc.id, doc)
+					end
+
+					return id ~= nil
 				else
 					Chat.Send.Server:Single(source, "Invalid Interior Combination")
 					return false
@@ -119,192 +121,145 @@ PROPERTIES = {
 				return false
 			end
 
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						['location.front'] = pos,
-					},
-				},
-			}, function(success, results)
-				if success then
-					if _properties[id] and _properties[id].location then
-						_properties[id].location.front = pos
+			local success = MySQL.query.await(
+				"UPDATE properties SET location = JSON_SET(location, '$.front', CAST(? AS JSON)) WHERE id = ?",
+				{
+					json.encode(pos),
+					id,
+				}
+			) ~= nil
 
-						TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-					end
+			if success then
+				if _properties[id] and _properties[id].location then
+					_properties[id].location.front = pos
+
+					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
+			end
 
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			return success
 		end,
 		AddBackdoor = function(self, id, pos)
 			if not _properties[id] or not pos then
 				return false
 			end
 
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						['location.backdoor'] = pos,
-					},
-				},
-			}, function(success, results)
-				if success then
-					if _properties[id] and _properties[id].location then
-						_properties[id].location.backdoor = pos
+			local success = MySQL.query.await(
+				"UPDATE properties SET location = JSON_SET(location, '$.backdoor', CAST(? AS JSON)) WHERE id = ?",
+				{
+					json.encode(pos),
+					id,
+				}
+			) ~= nil
 
-						TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-					end
+			if success then
+				if _properties[id] and _properties[id].location then
+					_properties[id].location.backdoor = pos
+
+					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
+			end
 
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			return success
 		end,
 		AddGarage = function(self, id, pos)
 			if not _properties[id] or pos == nil then
 				return false
 			end
 
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						['location.garage'] = pos,
-					},
-				},
-			}, function(success, results)
-				if success then
-					if _properties[id] and _properties[id].location then
-						_properties[id].location.garage = pos
+			local success = MySQL.query.await(
+				"UPDATE properties SET location = JSON_SET(location, '$.garage', CAST(? AS JSON)) WHERE id = ?",
+				{
+					json.encode(pos),
+					id,
+				}
+			) ~= nil
 
-						TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-					end
+			if success then
+				if _properties[id] and _properties[id].location then
+					_properties[id].location.garage = pos
+
+					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
+			end
 
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			return success
 		end,
 		SetLabel = function(self, id, label)
 			if not _properties[id] or not label then
 				return false
 			end
 
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						label = label,
-					},
-				},
-			}, function(success, results)
-				if success then
-					if _properties[id] and _properties[id].label then
-						_properties[id].label = label
+			local success = MySQL.query.await("UPDATE properties SET label = ? WHERE id = ?", {
+				label,
+				id,
+			}) ~= nil
 
-						TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-					end
+			if success then
+				if _properties[id] and _properties[id].label then
+					_properties[id].label = label
+
+					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
+			end
 
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			return success
 		end,
 		SetPrice = function(self, id, price)
 			if not _properties[id] or not price then
 				return false
 			end
 
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						price = price,
-					},
-				},
-			}, function(success, results)
-				if success then
-					if _properties[id] and _properties[id].price then
-						_properties[id].price = price
+			local success = MySQL.query.await("UPDATE properties SET price = ? WHERE id = ?", {
+				price,
+				id,
+			}) ~= nil
 
-						TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-					end
+			if success then
+				if _properties[id] and _properties[id].price then
+					_properties[id].price = price
+
+					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
+			end
 
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			return success
 		end,
 		SetData = function(self, id, key, value)
 			if not key or not _properties[id] then
 				return false
 			end
 
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						[string.format('data.%s', key)] = value,
-					},
-				},
-			}, function(success, results)
-				if success then
-					if _properties[id] then
-						if not _properties[id].data then _properties[id].data = {} end
-						_properties[id].data[key] = value
+			local success = MySQL.query.await(
+				"UPDATE properties SET `data` = JSON_SET(COALESCE(`data`, '{}'), ?, CAST(? AS JSON)) WHERE id = ?",
+				{
+					string.format('$."%s"', key),
+					json.encode(value),
+					id,
+				}
+			) ~= nil
 
-						TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-					end
+			if success then
+				if _properties[id] then
+					if not _properties[id].data then _properties[id].data = {} end
+					_properties[id].data[key] = value
+
+					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
+			end
 
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			return success
 		end,
 		Delete = function(self, id)
-			local p = promise.new()
-			Database.Game:deleteOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-			}, function(success, result)
-				if success then
-					_properties[id] = nil
+			local success = MySQL.query.await("DELETE FROM properties WHERE id = ?", { id }) ~= nil
 
-					TriggerClientEvent("Properties:Client:Update", -1, id, nil)
-				end
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			if success then
+				_properties[id] = nil
+
+				TriggerClientEvent("Properties:Client:Update", -1, id, nil)
+			end
+
+			return success
 		end,
 	},
 	Upgrades = {
@@ -322,30 +277,25 @@ PROPERTIES = {
 						level = #upgradeData.levels
 					end
 
-					local p = promise.new()
-					Database.Game:updateOne({
-						collection = "properties",
-						query = {
-							_id = id,
-						},
-						update = {
-							["$set"] = {
-								[string.format('upgrades.%s', upgrade)] = level,
-							},
-						},
-					}, function(success, results)
-						if success then
-							if _properties[id] then
-								if not _properties[id].upgrades then _properties[id].upgrades = {} end
-								_properties[id].upgrades[upgrade] = level
+					local success = MySQL.query.await(
+						"UPDATE properties SET upgrades = JSON_SET(COALESCE(upgrades, '{}'), ?, ?) WHERE id = ?",
+						{
+							string.format('$."%s"', upgrade),
+							level,
+							id,
+						}
+					) ~= nil
 
-								TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-							end
+					if success then
+						if _properties[id] then
+							if not _properties[id].upgrades then _properties[id].upgrades = {} end
+							_properties[id].upgrades[upgrade] = level
+
+							TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 						end
+					end
 
-						p:resolve(success)
-					end)
-					return Citizen.Await(p)
+					return success
 				end
 			end
 
@@ -384,140 +334,105 @@ PROPERTIES = {
 				local intData = PropertyInteriors[interior]
 
 				if intData and intData.type == property.type then
-					local p = promise.new()
-					Database.Game:updateOne({
-						collection = "properties",
-						query = {
-							_id = id,
-						},
-						update = {
-							["$set"] = {
-								["upgrades.interior"] = interior,
-							},
-						},
-					}, function(success, results)
-						if success then
-							if _properties[id] then
-								if not _properties[id].upgrades then _properties[id].upgrades = {} end
-								_properties[id].upgrades["interior"] = interior
+					local success = MySQL.query.await(
+						"UPDATE properties SET upgrades = JSON_SET(COALESCE(upgrades, '{}'), '$.interior', ?) WHERE id = ?",
+						{
+							interior,
+							id,
+						}
+					) ~= nil
 
-								TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-							end
+					if success then
+						if _properties[id] then
+							if not _properties[id].upgrades then _properties[id].upgrades = {} end
+							_properties[id].upgrades["interior"] = interior
+
+							TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 						end
+					end
 
-						p:resolve(success)
-					end)
-					return Citizen.Await(p)
+					return success
 				end
 			end
 		end,
 	},
 	Commerce = {
 		Sell = function(self, id)
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						sold = false,
-						owner = false,
-					},
-					["$unset"] = {
-						keys = true,
-					},
-				},
-			}, function(success, results)
-				if success and _properties[id] then
-					_properties[id].sold = false
+			local success = MySQL.query.await(
+				"UPDATE properties SET sold = 0, owner = NULL, `keys` = NULL WHERE id = ?",
+				{ id }
+			) ~= nil
 
-					if _properties[id].keys then
-						for k, v in pairs(_properties[id].keys) do
-							local t = GlobalState[string.format("Char:Properties:%s", v.Char)]
-							if t ~= nil then
-								for k2, v2 in ipairs(t) do
-									if v2 == id then
-										table.remove(t, k2)
-										GlobalState[string.format("Char:Properties:%s", v.Char)] = t
-										break
-									end
+			if success and _properties[id] then
+				_properties[id].sold = false
+
+				if _properties[id].keys then
+					for k, v in pairs(_properties[id].keys) do
+						local t = GlobalState[string.format("Char:Properties:%s", v.Char)]
+						if t ~= nil then
+							for k2, v2 in ipairs(t) do
+								if v2 == id then
+									table.remove(t, k2)
+									GlobalState[string.format("Char:Properties:%s", v.Char)] = t
+									break
 								end
 							end
 						end
 					end
-
-					_properties[id].keys = nil
-					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+
+				_properties[id].keys = nil
+				TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
+			end
+
+			return success
 		end,
 		Buy = function(self, id, owner, payment)
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						soldAt = os.time(),
-						sold = true,
-						owner = owner,
-						keys = {
-							[owner.Char] = owner,
-						},
-					},
-				},
-			}, function(success, results)
-				if success then
-					_properties[id].sold = true
-					_properties[id].keys = {
-						[owner.Char] = owner,
-					}
-					_properties[id].soldAt = os.time()
+			local soldAt = os.time()
+			local success = MySQL.query.await(
+				"UPDATE properties SET soldAt = ?, sold = 1, owner = ?, `keys` = ? WHERE id = ?",
+				{
+					soldAt,
+					json.encode(owner),
+					json.encode({ [tostring(owner.Char)] = owner }),
+					id,
+				}
+			) ~= nil
 
-					table.insert(GlobalState[string.format("Char:Properties:%s", owner.Char)], propertyId)
+			if success then
+				_properties[id].sold = true
+				_properties[id].keys = {
+					[owner.Char] = owner,
+				}
+				_properties[id].soldAt = soldAt
 
-					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-				end
-				p:resolve(success)
-			end)
+				table.insert(GlobalState[string.format("Char:Properties:%s", owner.Char)], propertyId)
 
-			return Citizen.Await(p)
+				TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
+			end
+
+			return success
 		end,
 		Foreclose = function(self, id, state)
 			if not _properties[propertyId] and state ~= nil then
 				return false
 			end
 
-			local p = promise.new()
-			Database.Game:updateOne({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						foreclosed = state,
-						foreclosedTime = state and os.time() or false,
-					},
-				},
-			}, function(success, results)
-				if success then
-					if _properties[id] then
-						_properties[id].foreclosed = state
+			local success = MySQL.query.await("UPDATE properties SET foreclosed = ?, foreclosedTime = ? WHERE id = ?", {
+				state,
+				state and os.time() or 0,
+				id,
+			}) ~= nil
 
-						TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
-					end
+			if success then
+				if _properties[id] then
+					_properties[id].foreclosed = state
+
+					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
 				end
+			end
 
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			return success
 		end,
 	},
 	Utils = {
@@ -556,92 +471,78 @@ PROPERTIES = {
 	},
 	Keys = {
 		Give = function(self, charData, id, isOwner, permissions, updating)
-			local p = promise.new()
+			local success = MySQL.query.await(
+				"UPDATE properties SET `keys` = JSON_SET(COALESCE(`keys`, '{}'), ?, CAST(? AS JSON)) WHERE id = ?",
+				{
+					string.format('$."%s"', charData.ID),
+					json.encode({
+						Char = charData.ID,
+						First = charData.First,
+						Last = charData.Last,
+						SID = charData.SID,
+						Owner = isOwner,
+						Permissions = permissions,
+					}),
+					id,
+				}
+			) ~= nil
 
-			Database.Game:findOneAndUpdate({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$set"] = {
-						[string.format("keys.%s", charData.ID)] = {
-							Char = charData.ID,
-							First = charData.First,
-							Last = charData.Last,
-							SID = charData.SID,
-							Owner = isOwner,
-							Permissions = permissions,
-						},
-					},
-				},
-				options = {
-					returnDocument = 'after',
-				},
-			}, function(success, result)
-				if success then
-					_properties[id] = doPropertyThings(result)
+			local result = success and MySQL.single.await("SELECT * FROM properties WHERE id = ?", { id }) or nil
 
-					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
+			if result ~= nil then
+				_properties[id] = doPropertyThings(result)
 
-					if not updating then
-						if GlobalState[string.format("Char:Properties:%s", charData.ID)] ~= nil then
-							local t = GlobalState[string.format("Char:Properties:%s", charData.ID)]
-							table.insert(t, id)
-							GlobalState[string.format("Char:Properties:%s", charData.ID)] = t
-						else
-							GlobalState[string.format("Char:Properties:%s", charData.ID)] = {
-								id,
-							}
-						end
+				TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
+
+				if not updating then
+					if GlobalState[string.format("Char:Properties:%s", charData.ID)] ~= nil then
+						local t = GlobalState[string.format("Char:Properties:%s", charData.ID)]
+						table.insert(t, id)
+						GlobalState[string.format("Char:Properties:%s", charData.ID)] = t
+					else
+						GlobalState[string.format("Char:Properties:%s", charData.ID)] = {
+							id,
+						}
 					end
 				end
-				p:resolve(success)
+			end
 
-				if charData.Source then
-					TriggerClientEvent("Properties:Client:AddBlips", charData.Source)
-				end
-			end)
+			if charData.Source then
+				TriggerClientEvent("Properties:Client:AddBlips", charData.Source)
+			end
 
-			return Citizen.Await(p)
+			return success
 		end,
 		Take = function(self, target, id)
-			local p = promise.new()
+			local success = MySQL.query.await(
+				"UPDATE properties SET `keys` = JSON_REMOVE(`keys`, ?) WHERE id = ?",
+				{
+					string.format('$."%s"', target),
+					id,
+				}
+			) ~= nil
 
-			Database.Game:findOneAndUpdate({
-				collection = "properties",
-				query = {
-					_id = id,
-				},
-				update = {
-					["$unset"] = {
-						[string.format("keys.%s", target)] = true,
-					},
-				},
-				options = {
-					returnDocument = 'after',
-				},
-			}, function(success, result)
-				if success then
-					_properties[id] = doPropertyThings(result)
+			local result = success and MySQL.single.await("SELECT * FROM properties WHERE id = ?", { id }) or nil
 
-					TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
+			if result ~= nil then
+				_properties[id] = doPropertyThings(result)
 
-					local t = GlobalState[string.format("Char:Properties:%s", target)]
-					if t ~= nil then
-						for k, v in ipairs(t) do
-							if v == id then
-								table.remove(t, k)
-								break
-							end
+				TriggerClientEvent("Properties:Client:Update", -1, id, _properties[id])
+
+				local t = GlobalState[string.format("Char:Properties:%s", target)]
+				if t ~= nil then
+					for k, v in ipairs(t) do
+						if v == id then
+							table.remove(t, k)
+							break
 						end
-
-						GlobalState[string.format("Char:Properties:%s", target)] = t
 					end
+
+					GlobalState[string.format("Char:Properties:%s", target)] = t
 				end
-				p:resolve(success)
-			end)
-			return Citizen.Await(p)
+			end
+
+			return success
 		end,
 		Has = function(self, id, charId)
 			if _properties[id] and _properties[id].keys ~= nil then

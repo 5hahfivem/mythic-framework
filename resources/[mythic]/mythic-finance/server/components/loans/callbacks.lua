@@ -1,21 +1,5 @@
 function GetCharactersLoans(stateId)
-    local p = promise.new()
-
-    Database.Game:find({
-        collection = 'loans',
-        query = {
-            SID = stateId,
-        }
-    }, function(success, results)
-        if success and #results > 0 then
-            p:resolve(results)
-        else
-            p:resolve({})
-        end
-    end)
-
-    local res = Citizen.Await(p)
-    return res
+    return MySQL.query.await('SELECT * FROM loans WHERE SID = ?', { stateId })
 end
 
 function RegisterLoanCallbacks()

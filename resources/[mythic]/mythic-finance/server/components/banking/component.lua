@@ -3,7 +3,6 @@ function RetrieveBankingComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
 	Utils = exports["mythic-base"]:FetchComponent("Utils")
     Execute = exports["mythic-base"]:FetchComponent("Execute")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
     Chat = exports["mythic-base"]:FetchComponent("Chat")
@@ -27,7 +26,6 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Utils",
         "Execute",
         "Chat",
-		"Database",
 		"Middleware",
 		"Callbacks",
 		"Logger",
@@ -106,58 +104,37 @@ _BANKING = {
 			})
 		end,
 		AddPersonalSavingsJointOwner = function(self, accountId, jointOwnerSID)
-			local p = promise.new()
-			Database.Game:findOneAndUpdate({
-				collection = "bank_accounts",
-				query = {
-					Account = accountId,
+			return UpdateBankAccount({
+				Account = accountId,
+			}, {
+				["$push"] = {
+					JointOwners = jointOwnerSID,
 				},
-				update = {
-					["$push"] = {
-						JointOwners = jointOwnerSID,
-					},
-				},
-				options = {
-					returnDocument = "after",
-				},
-			}, function(success, results)
-				if success and results then
-					p:resolve(results)
-				else
-					p:resolve(false)
-				end
-			end)
-
-			
-			local res = Citizen.Await(p)
-			return res
+			})
 		end,
 		RemovePersonalSavingsJointOwner = function(self, accountId, jointOwnerSID)
-			local p = promise.new()
-			Database.Game:findOneAndUpdate({
-				collection = "bank_accounts",
-				query = {
-					Account = accountId,
-				},
-				update = {
-					["$pull"] = {
-						JointOwners = jointOwnerSID,
-					},
-				},
-				options = {
-					returnDocument = "after",
-				},
-			}, function(success, results)
-				if success and results then
-					p:resolve(results)
-				else
-					p:resolve(false)
-				end
-			end)
+			local account = FindBankAccount({
+				Account = accountId,
+			})
 
-			
-			local res = Citizen.Await(p)
-			return res
+			if not account then
+				return false
+			end
+
+			local jointOwners = {}
+			for k, v in ipairs(account.JointOwners or {}) do
+				if v ~= jointOwnerSID then
+					table.insert(jointOwners, v)
+				end
+			end
+
+			return UpdateBankAccount({
+				Account = accountId,
+			}, {
+				["$set"] = {
+					JointOwners = jointOwners,
+				},
+			})
 		end,
 		CreateOrganization = function(self, accountId, accountName, startingBalance, jobAccess)
 			local account = FindBankAccount({
@@ -369,29 +346,29 @@ _BANKING = {
 				Data = data,
 			}
 
-			Database.Game:insertOne({
-				collection = "bank_accounts_transactions",
-				document = doc,
-			})
+			MySQL.insert.await(
+				"INSERT INTO bank_accounts_transactions (Account, Timestamp, transaction) VALUES(?, ?, ?)",
+				{
+					doc.Account,
+					doc.Timestamp,
+					json.encode(doc),
+				}
+			)
+
 			return doc
 		end,
 		Get = function(self, accountNumber)
-			local p = promise.new()
-			Database.Game:find({
-				collection = "bank_accounts_transactions",
-				query = {
-					Account = accountNumber,
-				},
-			}, function(success, results)
-				if success then
-					p:resolve(results)
-				else
-					p:resolve({})
-				end
-			end)
+			local rows = MySQL.query.await(
+				"SELECT * FROM bank_accounts_transactions WHERE Account = ?",
+				{ accountNumber }
+			)
 
-			local res = Citizen.Await(p)
-			return res
+			local transactions = {}
+			for k, v in ipairs(rows) do
+				table.insert(transactions, json.decode(v.transaction))
+			end
+
+			return transactions
 		end,
 	},
 }

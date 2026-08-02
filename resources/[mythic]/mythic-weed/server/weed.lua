@@ -2,7 +2,6 @@ _plants = {}
 
 AddEventHandler("Weed:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
@@ -26,7 +25,6 @@ end
 
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Weed", {
-		"Database",
 		"Callbacks",
 		"Logger",
 		"Middleware",
@@ -97,7 +95,6 @@ WEED = {
 			end
 		end,
 		Create = function(self, isMale, location, material)
-			local p = promise.new()
 			local weed = {
 				isMale = isMale,
 				location = location,
@@ -107,17 +104,17 @@ WEED = {
 				planted = os.time(),
 				water = 100.0,
 			}
-			Database.Game:insertOne({
-				collection = "weed",
-				document = weed,
-			}, function(success, results, insertedIds)
-				if not success then
-					return p:resolve(nil)
-				end
-				weed._id = insertedIds[1]
-				return p:resolve(weed)
-			end)
-			return Citizen.Await(p)
+			local id = MySQL.insert.await("INSERT INTO weed (planted, plant) VALUES(?, ?)", {
+				weed.planted,
+				json.encode(weed),
+			})
+
+			if not id then
+				return nil
+			end
+
+			weed._id = id
+			return weed
 		end,
 	},
 }

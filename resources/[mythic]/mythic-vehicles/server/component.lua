@@ -10,7 +10,6 @@ _savedVehiclePropertiesClusterfuck = {}
 AddEventHandler('Vehicles:Shared:DependencyUpdate', RetrieveComponents)
 function RetrieveComponents()
     Callbacks = exports['mythic-base']:FetchComponent('Callbacks')
-    Database = exports['mythic-base']:FetchComponent('Database')
     Execute = exports['mythic-base']:FetchComponent('Execute')
     Fetch = exports['mythic-base']:FetchComponent('Fetch')
     Locations = exports['mythic-base']:FetchComponent('Locations')
@@ -36,7 +35,6 @@ end
 AddEventHandler('Core:Shared:Ready', function()
     exports['mythic-base']:RequestDependencies('Vehicles', {
         'Callbacks',
-        'Database',
         'Fetch',
         'Execute',
         'Locations',
@@ -149,19 +147,8 @@ function SaveVehicle(VIN)
 
         veh:SetData('LastSave', os.time())
 
-        Database.Game:updateOne({
-            collection = 'vehicles',
-            query = {
-                VIN = VIN,
-            },
-            update = {
-                ["$set"] = data,
-            },
-        }, function(success, res)
-            p:resolve(success)
-        end)
+        local success = MySQL.query.await(VehicleUpdateQuery('VIN = ?'), VehicleParams(data, VIN)) ~= nil
 
-        local success = Citizen.Await(p)
         return success
     else
         return false
@@ -332,17 +319,17 @@ VEHICLE = {
                     DirtLevel = 0.0,
                 }
 
-                Database.Game:insertOne({
-                    collection = 'vehicles',
-                    document = doc,
-                }, function(success, insertedAmount, insertedIds)
-                    if success and insertedAmount > 0 then
-                        doc._id = insertedIds[1]
-                        cb(true, doc)
-                    else
-                        cb(false)
-                    end
-                end)
+                local insertedId = MySQL.insert.await(
+                    'INSERT INTO vehicles (VIN, Type, RegisteredPlate, FakePlate, Make, Model, ownerType, ownerId, ownerWorkplace, ownerLevel, storageType, storageId, vehicle) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    VehicleInsertParams(doc)
+                )
+
+                if insertedId ~= nil then
+                    doc._id = insertedId
+                    cb(true, doc)
+                else
+                    cb(false)
+                end
             else
                 cb(false)
             end
@@ -356,80 +343,70 @@ VEHICLE = {
         end,
 
         GetVIN = function(self, VIN, cb)
-            Database.Game:findOne({
-                collection = 'vehicles',
-                query = {
-                    VIN = VIN,
-                }
-            }, function(success, results)
-                if success and #results > 0 then
-                    local vehicle = results[1]
-                    cb(vehicle)
-                else
-                    cb(false)
-                end
-            end)
+            local result = MySQL.single.await('SELECT vehicle FROM vehicles WHERE VIN = ?', { VIN })
+
+            if result ~= nil then
+                cb(json.decode(result.vehicle))
+            else
+                cb(false)
+            end
         end,
         GetAll = function(self, vehType, ownerType, ownerId, cb, storageType, storageId, ignoreSpawned, checkFleetOwner)
-            local orQuery = {}
+            local orQuery, params = {}, {}
 
             if ownerType and ownerId then
-                table.insert(orQuery, {
-                    ['Owner.Type'] = ownerType,
-                    ['Owner.Id'] = ownerId,
-                })
+                table.insert(orQuery, '(ownerType = ? AND ownerId = ?)')
+                table.insert(params, ownerType)
+                table.insert(params, ownerId)
             end
 
             if checkFleetOwner and checkFleetOwner.Id then
-                table.insert(orQuery, {
-                    ['Owner.Type'] = 1,
-                    ['Owner.Id'] = checkFleetOwner.Id,
-                    ['Owner.Workplace'] = {
-                        ['$in'] = { checkFleetOwner.Workplace, false },
-                    },
-                    ['Owner.Level'] = {
-                        ['$lte'] = type(checkFleetOwner.Level) == 'number' and checkFleetOwner.Level or 0,
-                    },
-                })
+                table.insert(orQuery, "(ownerType = 1 AND ownerId = ? AND ownerWorkplace IN (?, '') AND ownerLevel <= ?)")
+                table.insert(params, checkFleetOwner.Id)
+                table.insert(params, checkFleetOwner.Workplace or '')
+                table.insert(params, type(checkFleetOwner.Level) == 'number' and checkFleetOwner.Level or 0)
             end
 
-            local query = {
-                ['$or'] = #orQuery > 0 and orQuery or nil,
-            }
+            local query = 'SELECT vehicle FROM vehicles'
+            local clauses = {}
+
+            if #orQuery > 0 then
+                table.insert(clauses, string.format('(%s)', table.concat(orQuery, ' OR ')))
+            end
 
             if storageType and storageId then
-                query['Storage.Type'] = storageType
-                query['Storage.Id'] = storageId
-            end
-            
-            if type(vehType) == 'number' then
-                query['Type'] = vehType
+                table.insert(clauses, 'storageType = ? AND storageId = ?')
+                table.insert(params, storageType)
+                table.insert(params, storageId)
             end
 
-            Database.Game:find({
-                collection = 'vehicles',
-                query = query,
-            }, function(success, results)
-                if success then
-                    local vehicles = {}
-                    for k, v in ipairs(results) do
-                        if not ignoreSpawned or (ignoreSpawned and not Vehicles.Owned:GetActive(v.VIN)) then
-                            v.Spawned = Vehicles.Owned:GetActive(v.VIN)
-                            if v.Storage and v.Storage.Type == 2 then
-                                local prop = Properties:Get(v.Storage.Id)
-                                if prop and prop.id and prop.label then
-                                    v.PropertyStorage = prop
-                                end
-                            end
-                            table.insert(vehicles, v)
+            if type(vehType) == 'number' then
+                table.insert(clauses, 'Type = ?')
+                table.insert(params, vehType)
+            end
+
+            if #clauses > 0 then
+                query = string.format('%s WHERE %s', query, table.concat(clauses, ' AND '))
+            end
+
+            local results = MySQL.query.await(query, params)
+
+            local vehicles = {}
+            for k, r in ipairs(results) do
+                local v = json.decode(r.vehicle)
+                if not ignoreSpawned or (ignoreSpawned and not Vehicles.Owned:GetActive(v.VIN)) then
+                    v.Spawned = Vehicles.Owned:GetActive(v.VIN)
+                    if v.Storage and v.Storage.Type == 2 then
+                        local prop = Properties:Get(v.Storage.Id)
+                        if prop and prop.id and prop.label then
+                            v.PropertyStorage = prop
                         end
                     end
-
-                    cb(vehicles)
-                else
-                    cb(false)
+                    table.insert(vehicles, v)
                 end
-            end)
+            end
+
+            cb(vehicles)
         end,
         
         Spawn = function(self, source, VIN, coords, heading, cb)
@@ -631,30 +608,21 @@ VEHICLE = {
                 end
             end,
             GetCount = function(self, propertyId, ignoreVIN)
-                local p = promise.new()
-                local query = {
-                    ['Storage.Type'] = 2,
-                    ['Storage.Id'] = propertyId
-                }
+                local query = 'SELECT COUNT(*) FROM vehicles WHERE storageType = 2 AND storageId = ?'
+                local params = { propertyId }
 
                 if ignoreVIN then
-                    query['VIN'] = {
-                        ['$ne'] = ignoreVIN
-                    }
+                    query = query .. ' AND VIN != ?'
+                    table.insert(params, ignoreVIN)
                 end
 
-                Database.Game:count({
-                    collection = 'vehicles',
-                    query = query,
-                }, function(success, count)
-                    if success then
-                        p:resolve(count)
-                    else
-                        p:resolve(false)
-                    end
-                end)
+                local count = MySQL.scalar.await(query, params)
 
-                return Citizen.Await(p)
+                if count == nil then
+                    return false
+                end
+
+                return count
             end,
         },
 
@@ -687,25 +655,11 @@ VEHICLE = {
                             }
                         end
 
-                        Database.Game:updateOne({
-                            collection = 'vehicles',
-                            query = {
-                                VIN = VIN,
-                            },
-                            update = {
-                                ['$set'] = {
-                                    Seized = seizeState,
-                                    SeizedTime = (seizeState and os.time() or false),
-                                    Storage = updatingStorage
-                                }
-                            }
-                        }, function(success, updated)
-                            if success and updated > 0 then
-                                p:resolve(true)
-                            else
-                                p:resolve(false)
-                            end
-                        end)
+                        vehicle.Seized = seizeState
+                        vehicle.SeizedTime = (seizeState and os.time() or false)
+                        vehicle.Storage = updatingStorage or vehicle.Storage
+
+                        p:resolve(MySQL.query.await(VehicleUpdateQuery('VIN = ?'), VehicleParams(vehicle, VIN)) ~= nil)
                     else
                         p:resolve(false)
                     end

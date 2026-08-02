@@ -1,136 +1,55 @@
 local _data = {}
 local _inserting = {}
 
+local function insertDefaults(collection, date, data)
+    -- Prevents doing this operation multiple times because earlier
+    -- Calls haven't finished yet
+    while _inserting[collection] ~= nil do Wait(10) end
+
+    for k, v in ipairs(data) do
+        v.default = true
+    end
+
+    _inserting[collection] = true
+
+    local existing = MySQL.single.await('SELECT date FROM defaults WHERE collection = ?', { collection })
+
+    if existing == nil or existing.date < date then
+        MySQL.query.await(('DELETE FROM `%s` WHERE `default` = 1'):format(collection), {})
+
+        for k, v in ipairs(data) do
+            local columns, values = {}, {}
+            for column, value in pairs(v) do
+                table.insert(columns, column)
+                table.insert(values, type(value) == 'table' and json.encode(value) or value)
+            end
+
+            MySQL.query.await(('INSERT INTO `%s` (`%s`) VALUES(%s)'):format(
+                collection,
+                table.concat(columns, '`, `'),
+                ('?, '):rep(#columns - 1) .. '?'
+            ), values)
+        end
+
+        MySQL.query.await('INSERT INTO defaults (collection, date) VALUES(?, ?) ON DUPLICATE KEY UPDATE date = VALUES(date)', {
+            collection,
+            date,
+        })
+
+        COMPONENTS.Logger:Trace('Data', ('Added Default Data For %s'):format(collection), { console = true })
+    end
+
+    _inserting[collection] = nil
+end
+
 COMPONENTS.Default = {
     _required = { 'Add' },
     _name = { 'base' },
     _protected = true,
     Add = function(self, collection, date, data)
-        CreateThread(function()
-            -- Prevents doing this operation multiple times because earlier
-            -- Calls haven't finished yet
-            while _inserting[collection] ~= nil do Wait(10) end
-
-            for k, v in ipairs(data) do
-                v.default = true
-            end
-
-            _inserting[collection] = true
-            COMPONENTS.Database.Game:findOne({
-                collection = 'defaults',
-                query = {
-                    collection = collection
-                }
-            }, function(s, r)
-                if not s then COMPONENTS.Logger:Error('Data', ('Failed To Retrieve Details For %s Default Data'):format(collection)) _inserting[collection] = nil return end
-    
-                if #r == 0 or r[1].date < date then
-                    COMPONENTS.Database.Game:delete({
-                        collection = collection,
-                        query = {
-                            default = true
-                        }
-                    }, function(s2, r2)
-                        if not s then COMPONENTS.Logger:Error('Data', ('Failed To Remove Existing Default Data For %s'):format(collection)) _inserting[collection] = nil return end
-    
-                        COMPONENTS.Database.Game:insert({
-                            collection = collection,
-                            documents = data
-                        }, function(s3, r3)
-                            if not s then COMPONENTS.Logger:Error('Data', ('Failed Adding Default Data For %s'):format(collection)) _inserting[collection] = nil return end
-    
-                            local qry = {
-                                collection = collection
-                            }
-    
-                            if #r > 0 then qry._id = r[1]._id end
-    
-                            COMPONENTS.Database.Game:updateOne({
-                                collection = 'defaults',
-                                update = {
-                                    ['$set'] = {
-                                        collection = collection,
-                                        date = date
-                                    }
-                                },
-                                query = qry,
-                                options = {
-                                    upsert = true
-                                }
-                            }, function(success, result)
-                                _inserting[collection] = nil
-                                if not s then COMPONENTS.Logger:Error('Data', ('Failed Updating Details For %s Default Data'):format(collection)) return end
-                            end)
-                        end)
-                    end)
-                else
-                    _inserting[collection] = nil
-                end
-            end)
-        end)
+        insertDefaults(collection, date, data)
     end,
     AddAuth = function(self, collection, date, data)
-        CreateThread(function()
-            -- Prevents doing this operation multiple times because earlier
-            -- Calls haven't finished yet
-            while _inserting[collection] ~= nil do Wait(10) end
-
-            for k, v in ipairs(data) do
-                v.default = true
-            end
-
-            _inserting[collection] = true
-            COMPONENTS.Database.Game:findOne({
-                collection = 'defaults',
-                query = {
-                    collection = collection
-                }
-            }, function(s, r)
-                if not s then COMPONENTS.Logger:Error('Data', ('Failed To Retrieve Details For %s Default Data'):format(collection)) _inserting[collection] = nil return end
-    
-                if #r == 0 or r[1].date < date then
-                    COMPONENTS.Database.Auth:delete({
-                        collection = collection,
-                        query = {
-                            default = true
-                        }
-                    }, function(s2, r2)
-                        if not s then COMPONENTS.Logger:Error('Data', ('Failed To Remove Existing Default Data For %s'):format(collection)) _inserting[collection] = nil return end
-    
-                        COMPONENTS.Database.Auth:insert({
-                            collection = collection,
-                            documents = data
-                        }, function(s3, r3)
-                            if not s then COMPONENTS.Logger:Error('Data', ('Failed Adding Default Data For %s'):format(collection)) _inserting[collection] = nil return end
-    
-                            local qry = {
-                                collection = collection
-                            }
-    
-                            if #r > 0 then qry._id = r[1]._id end
-    
-                            COMPONENTS.Database.Game:updateOne({
-                                collection = 'defaults',
-                                update = {
-                                    ['$set'] = {
-                                        collection = collection,
-                                        date = date
-                                    }
-                                },
-                                query = qry,
-                                options = {
-                                    upsert = true
-                                }
-                            }, function(success, result)
-                                _inserting[collection] = nil
-                                if not s then COMPONENTS.Logger:Error('Data', ('Failed Updating Details For %s Default Data'):format(collection)) return end
-                            end)
-                        end)
-                    end)
-                else
-                    _inserting[collection] = nil
-                end
-            end)
-        end)
+        insertDefaults(collection, date, data)
     end
 }

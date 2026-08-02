@@ -63,20 +63,14 @@ local function doLog(level, component, log, flags, data)
 			logFile:close()
 		end
 
-		if COMPONENTS.Proxy.DatabaseReady then
-			if GlobalState.IsProduction and flags.database then
-				COMPONENTS.Database.Game:insertOne({
-					collection = "logs",
-					document = {
-						date = os.time(),
-						--server = COMPONENTS.Config.Server.ID,
-						level = level,
-						component = component,
-						log = log,
-						data = data,
-					},
-				})
-			end
+		if GlobalState.IsProduction and flags.database then
+			MySQL.insert.await("INSERT INTO logs (date, level, component, log, `data`) VALUES(?, ?, ?, ?, ?)", {
+				os.time(),
+				level,
+				component,
+				log,
+				json.encode(data or {}),
+			})
 		end
 
 		if GlobalState.IsProduction and flags.discord and level >= COMPONENTS.Convar.LOGGING.value then

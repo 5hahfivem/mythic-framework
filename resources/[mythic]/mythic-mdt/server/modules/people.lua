@@ -23,272 +23,103 @@ local requiredCharacterData = {
 _MDT.People = {
 	Search = {
 		People = function(self, term)
-			local p = promise.new()
-			Database.Game:find({
-				collection = "characters",
-				query = {
-					["$and"] = {
-						{
-							["$or"] = {
-								{
-									["$expr"] = {
-										["$regexMatch"] = {
-											input = {
-												["$concat"] = { "$First", " ", "$Last" },
-											},
-											regex = term,
-											options = "i",
-										},
-									},
-								},
-								{
-									["$expr"] = {
-										["$regexMatch"] = {
-											input = {
-												["$toString"] = "$SID",
-											},
-											regex = term,
-											options = "i",
-										},
-									},
-								},
-							},
-						},
-						{
-							["$or"] = {
-								{ Deleted = false },
-								{ Deleted = {
-									["$exists"] = false,
-								} },
-							},
-						},
-					},
-				},
-				options = {
-					projection = requiredCharacterData,
-					limit = 12,
-				},
-			}, function(success, results)
-				if not success then
-					p:resolve(false)
-					return
-				end
-				p:resolve(results)
-			end)
+			local search = string.format("%%%s%%", term)
+			local results = MySQL.query.await(
+				[[SELECT * FROM characters
+					WHERE Deleted = 0 AND (CONCAT(First, ' ', Last) LIKE ? OR CAST(SID AS CHAR) LIKE ?)
+					LIMIT 12]],
+				{ search, search }
+			)
+
 			GlobalState["MDT:Metric:Search"] = GlobalState["MDT:Metric:Search"] + 1
-			return Citizen.Await(p)
+
+			return DecodeMdtCharacters(results)
 		end,
 		Government = function(self)
-			local p = promise.new()
-			Database.Game:find({
-				collection = "characters",
-				query = {
-					Jobs = {
-						["$elemMatch"] = {
-							Id = {
-								["$in"] = _governmentJobs,
-							},
-						},
-					},
-				},
-				options = {
-					projection = requiredCharacterData,
-				},
-			}, function(success, results)
-				if not success then
-					p:resolve(false)
-					return
-				end
-				p:resolve(results)
-			end)
-			return Citizen.Await(p)
+			return DecodeMdtCharacters(MySQL.query.await(
+				string.format(
+					[[SELECT * FROM characters WHERE Deleted = 0 AND (%s)]],
+					GovernmentJobClause()
+				),
+				_governmentJobs
+			))
 		end,
 		NotGovernment = function(self)
-			local p = promise.new()
-			Database.Game:find({
-				collection = "characters",
-				query = {
-					Jobs = {
-						["$not"] = {
-							["$elemMatch"] = {
-								Id = {
-									["$in"] = _governmentJobs,
-								},
-							},
-						},
-					},
-				},
-				options = {
-					projection = requiredCharacterData,
-				},
-			}, function(success, results)
-				if not success then
-					p:resolve(false)
-					return
-				end
-				p:resolve(results)
-			end)
-			return Citizen.Await(p)
+			return DecodeMdtCharacters(MySQL.query.await(
+				string.format(
+					[[SELECT * FROM characters WHERE Deleted = 0 AND NOT (%s)]],
+					GovernmentJobClause()
+				),
+				_governmentJobs
+			))
 		end,
 		Job = function(self, job, term)
-			local p = promise.new()
-
-			local qry = {
-				Jobs = {
-					["$elemMatch"] = {
-						Id = job,
-					},
-				},
-			}
+			local query = [[SELECT * FROM characters
+				WHERE Deleted = 0 AND JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), JSON_OBJECT('Id', ?))]]
+			local params = { job }
 
 			if term then
-				qry = {
-					["$and"] = {
-						{
-							["$or"] = {
-								{
-									["$expr"] = {
-										["$regexMatch"] = {
-											input = {
-												["$concat"] = { "$First", " ", "$Last" },
-											},
-											regex = term,
-											options = "i",
-										},
-									},
-								},
-								{
-									["$expr"] = {
-										["$regexMatch"] = {
-											input = {
-												["$toString"] = "$SID",
-											},
-											regex = term,
-											options = "i",
-										},
-									},
-								},
-							},
-						},
-						{
-							Jobs = {
-								["$elemMatch"] = {
-									Id = job,
-								},
-							},
-						},
-					},
-				}
+				local search = string.format("%%%s%%", term)
+				query = query .. " AND (CONCAT(First, ' ', Last) LIKE ? OR CAST(SID AS CHAR) LIKE ?) LIMIT 12"
+				table.insert(params, search)
+				table.insert(params, search)
 			end
 
-			Database.Game:find({
-				collection = "characters",
-				query = qry,
-				options = {
-					projection = requiredCharacterData,
-					limit = term and 12 or nil,
-				},
-			}, function(success, results)
-				if not success then
-					p:resolve(false)
-					return
-				end
-				p:resolve(results)
-			end)
-			return Citizen.Await(p)
+			return DecodeMdtCharacters(MySQL.query.await(query, params))
 		end,
 		NotJob = function(self, job)
-			local p = promise.new()
-			Database.Game:find({
-				collection = "characters",
-				query = {
-					Jobs = {
-						["$not"] = {
-							["$elemMatch"] = {
-								Id = job,
-							},
-						},
-					},
-				},
-				options = {
-					projection = requiredCharacterData,
-				},
-			}, function(success, results)
-				if not success then
-					p:resolve(false)
-					return
-				end
-				p:resolve(results)
-			end)
-			return Citizen.Await(p)
+			return DecodeMdtCharacters(MySQL.query.await(
+				[[SELECT * FROM characters
+					WHERE Deleted = 0 AND NOT JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), JSON_OBJECT('Id', ?))]],
+				{ job }
+			))
 		end,
 	},
 	View = function(self, id, requireAllData)
 		local SID = tonumber(id)
-		local p = promise.new()
-		Database.Game:findOne({
-			collection = "characters",
-			query = {
-				SID = SID,
-			},
-			options = {
-				projection = requiredCharacterData,
-			},
-		}, function(success, character)
-			if not success or #character < 0 then
-				p:resolve(false)
-				return
+		local char = DecodeMdtCharacter(MySQL.single.await('SELECT * FROM characters WHERE SID = ?', { SID }))
+
+		if not char then
+			return false
+		end
+
+		if not requireAllData then
+			return char
+		end
+
+		local convictions = DecodeMdtRow(
+			MySQL.single.await('SELECT * FROM character_convictions WHERE SID = ?', { SID }),
+			'convictions'
+		)
+
+		local vehicleRows = MySQL.query.await(
+			"SELECT vehicle FROM vehicles WHERE ownerType = 0 AND ownerId = ?",
+			{ SID }
+		)
+
+		local vehicles = {}
+		for k, v in ipairs(vehicleRows) do
+			table.insert(vehicles, json.decode(v.vehicle))
+		end
+
+		local ownedBusinesses = {}
+		if char.Jobs then
+			for k, v in ipairs(char.Jobs) do
+				local jobData = Jobs:Get(v.Id)
+				if jobData.Owner and jobData.Owner == char.SID then
+					table.insert(ownedBusinesses, v.Id)
+				end
 			end
+		end
 
-			if requireAllData then
-				Database.Game:findOne({
-					collection = "character_convictions",
-					query = {
-						SID = SID,
-					},
-				}, function(success2, convictions)
-					if not success2 then
-						p:resolve(false)
-						return
-					end
-
-					Database.Game:find({
-						collection = "vehicles",
-						query = {
-							["Owner.Type"] = 0,
-							["Owner.Id"] = SID,
-						},
-					}, function(success, vehicles)
-						if not success2 then
-							p:resolve(false)
-							return
-						end
-						local char = character[1]
-						local ownedBusinesses = {}
-
-						if char.Jobs then
-							for k, v in ipairs(char.Jobs) do
-								local jobData = Jobs:Get(v.Id)
-								if jobData.Owner and jobData.Owner == char.SID then
-									table.insert(ownedBusinesses, v.Id)
-								end
-							end
-						end
-
-						p:resolve({
-							data = char,
-							convictions = convictions[1],
-							vehicles = vehicles,
-							ownedBusinesses = ownedBusinesses,
-						})
-					end)
-				end)
-			else
-				p:resolve(character[1])
-			end
-		end)
-		return Citizen.Await(p)
+		return {
+			data = char,
+			convictions = convictions,
+			vehicles = vehicles,
+			ownedBusinesses = ownedBusinesses,
+		}
 	end,
+
 	Update = function(self, requester, id, key, value)
 		local p = promise.new()
 		local logVal = value
@@ -296,42 +127,40 @@ _MDT.People = {
 			logVal = json.encode(value)
 		end
 
-		local update = {
-			["$set"] = {
-				[key] = value,
-			},
-		}
-
+		local historyEntry
 		if requester == -1 then
-			update["$push"] = {
-				MDTHistory = {
-					Time = (os.time() * 1000),
-					Char = -1,
-					Log = string.format("System Updated Profile, Set %s To %s", key, logVal),
-				},
+			historyEntry = {
+				Time = (os.time() * 1000),
+				Char = -1,
+				Log = string.format("System Updated Profile, Set %s To %s", key, logVal),
 			}
 		else
-			update["$push"] = {
-				MDTHistory = {
-					Time = (os.time() * 1000),
-					Char = requester:GetData("SID"),
-					Log = string.format(
-						"%s Updated Profile, Set %s To %s",
-						requester:GetData("First") .. " " .. requester:GetData("Last"),
-						key,
-						logVal
-					),
-				},
+			historyEntry = {
+				Time = (os.time() * 1000),
+				Char = requester:GetData("SID"),
+				Log = string.format(
+					"%s Updated Profile, Set %s To %s",
+					requester:GetData("First") .. " " .. requester:GetData("Last"),
+					key,
+					logVal
+				),
 			}
 		end
 
-		Database.Game:updateOne({
-			collection = "characters",
-			query = {
-				SID = id,
-			},
-			update = update,
-		}, function(success, results)
+		local character = DecodeMdtCharacter(MySQL.single.await('SELECT * FROM characters WHERE SID = ?', { id }))
+
+		if character then
+			character[key] = value
+			character.MDTHistory = character.MDTHistory or {}
+			table.insert(character.MDTHistory, historyEntry)
+		end
+
+		local success = character and MySQL.query.await(
+			'UPDATE characters SET `character` = ? WHERE SID = ?',
+			{ json.encode(character), id }
+		) ~= nil
+
+		do
 			if success then
 				local target = Fetch:SID(id)
 				if target then
@@ -339,7 +168,7 @@ _MDT.People = {
 				end
 			end
 			p:resolve(success)
-		end)
+		end
 		return Citizen.Await(p)
 	end,
 }
@@ -396,14 +225,12 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 
 	Callbacks:RegisterServerCallback("MDT:CheckCallsign", function(source, data, cb)
 		if CheckMDTPermissions(source, false) then
-			Database.Game:findOne({
-				collection = "characters",
-				query = {
-					Callsign = data,
-				},
-			}, function(success, results)
-				cb(#results == 0)
-			end)
+			local count = MySQL.scalar.await(
+				[[SELECT COUNT(*) FROM characters WHERE JSON_EXTRACT(`character`, '$.Callsign') = ?]],
+				{ data }
+			)
+
+			cb(count == 0)
 		else
 			cb(false)
 		end
@@ -411,26 +238,50 @@ AddEventHandler("MDT:Server:RegisterCallbacks", function()
 
 	Callbacks:RegisterServerCallback("MDT:CheckParole", function(source, data, cb)
 		if CheckMDTPermissions(source, false) then
-			Database.Game:findOne({
-				collection = "characters",
-				query = {
-					SID = data,
-				},
-				options = {
-					projection = {
-						SID = -1,
-						Parole = 1,
-					},
-				},
-			}, function(success, results)
-				if results[1].Parole ~= nil then
-					cb(results[1].Parole)
-				else
-					cb(false)
-				end
-			end)
+			local character = DecodeMdtCharacter(MySQL.single.await('SELECT * FROM characters WHERE SID = ?', { data }))
+
+			if character and character.Parole ~= nil then
+				cb(character.Parole)
+			else
+				cb(false)
+			end
 		else
 			cb(false)
 		end
 	end)
 end)
+
+function GovernmentJobClause()
+	local clauses = {}
+
+	for k, v in ipairs(_governmentJobs) do
+		table.insert(clauses, "JSON_CONTAINS(JSON_EXTRACT(`character`, '$.Jobs'), JSON_OBJECT('Id', ?))")
+	end
+
+	if #clauses == 0 then
+		return '1 = 0'
+	end
+
+	return table.concat(clauses, ' OR ')
+end
+
+function DecodeMdtCharacter(row)
+	if row == nil then
+		return false
+	end
+
+	local character = json.decode(row.character)
+	character._id = row.id
+
+	return character
+end
+
+function DecodeMdtCharacters(rows)
+	local characters = {}
+
+	for k, v in ipairs(rows) do
+		table.insert(characters, DecodeMdtCharacter(v))
+	end
+
+	return characters
+end

@@ -1,7 +1,6 @@
 AddEventHandler("Arcade:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
 	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
 	Chat = exports["mythic-base"]:FetchComponent("Chat")
@@ -12,7 +11,6 @@ end
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Arcade", {
 		"Fetch",
-		"Database",
 		"Callbacks",
 		"Logger",
 		"Chat",

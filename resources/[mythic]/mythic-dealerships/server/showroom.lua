@@ -2,24 +2,21 @@ local showroomsLoaded = false
 
 DEALERSHIPS.Showroom = {
     Load = function(self)
-        local p = promise.new()
-        Database.Game:find({
-            collection = 'dealer_showrooms',
-        }, function(success, results)
-            local showRoomData = {}
-            if success and #results > 0 then
-                for k, v in ipairs(results) do
-                    if _dealerships[v.dealership] then
-                        showRoomData[v.dealership] = v.showroom or {}
-                    end
-                end
+        local results = MySQL.query.await('SELECT * FROM dealer_showrooms', {})
 
-                GlobalState.DealershipShowrooms = showRoomData
-                showroomsLoaded = true
+        local showRoomData = {}
+        if #results > 0 then
+            for k, v in ipairs(results) do
+                if _dealerships[v.dealership] then
+                    showRoomData[v.dealership] = v.showroom and json.decode(v.showroom) or {}
+                end
             end
-            p:resolve(success)
-        end)
-        return Citizen.Await(p)
+
+            GlobalState.DealershipShowrooms = showRoomData
+            showroomsLoaded = true
+        end
+
+        return true
     end,
 
     Update = function(self, dealershipId, showroom)
@@ -28,33 +25,25 @@ DEALERSHIPS.Showroom = {
                 showroom = {} 
             end
             
-            local p = promise.new()
-            Database.Game:findOneAndUpdate({
-                collection = 'dealer_showrooms',
-                query = { dealership = dealershipId },
-                update = {
-                    ['$set'] = {
-                        dealership = dealershipId,
-                        showroom = showroom,
-                    }
-                },
-                options = {
-                    upsert = true,
+            local success = MySQL.query.await(
+                'INSERT INTO dealer_showrooms (dealership, showroom) VALUES(?, ?) ON DUPLICATE KEY UPDATE showroom = VALUES(showroom)',
+                {
+                    dealershipId,
+                    json.encode(showroom),
                 }
-            }, function(success, result)
-                if success then
-                    -- FiveM is dumb
-                    local currentData = GlobalState.DealershipShowrooms
-                    currentData[dealershipId] = showroom
-                    GlobalState.DealershipShowrooms = currentData
-                    
-                    TriggerClientEvent('Dealerships:Client:ShowroomUpdate', -1, dealershipId)
-                    p:resolve(showroom)
-                else
-                    p:resolve(false)
-                end
-            end)
-            return Citizen.Await(p)
+            ) ~= nil
+
+            if success then
+                -- FiveM is dumb
+                local currentData = GlobalState.DealershipShowrooms
+                currentData[dealershipId] = showroom
+                GlobalState.DealershipShowrooms = currentData
+
+                TriggerClientEvent('Dealerships:Client:ShowroomUpdate', -1, dealershipId)
+                return showroom
+            end
+
+            return false
         end
         return false
     end,

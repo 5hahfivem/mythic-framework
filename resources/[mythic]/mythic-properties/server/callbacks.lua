@@ -347,28 +347,15 @@ function RegisterCallbacks()
 				}
 			end
 
-			Database.Game:aggregate({
-				collection = "properties",
-				aggregate = {
-					{
-						["$match"] = {
-							label = {
-								["$regex"] = data,
-								["$options"] = "i",
-							},
-						},
-					},
-					{
-						['$limit'] = 80
-					},
-				},
-			}, function(success, results)
-				if not success then
-					cb(false)
-					return
-				end
-				cb(results)
-			end)
+			local results = MySQL.query.await("SELECT * FROM properties WHERE label LIKE ? LIMIT 80", {
+				string.format("%%%s%%", data),
+			})
+
+			for k, v in ipairs(results) do
+				results[k] = doPropertyThings(v)
+			end
+
+			cb(results)
 		else
 			cb(false)
 		end

@@ -34,23 +34,14 @@ function StoreData(source)
 	data.LastPlayed = os.time() * 1000
 
 	Logger:Trace('Characters', string.format('Saving Character %s', cId), { console = true })
-	Database.Game:updateOne({
-		collection = 'characters',
-		query = {
-			User = plyr:GetData('AccountID'),
-			_id = cId,
-		},
-		update = {
-			['$set'] = data,
-		},
-	}, function()
-		_saving[source] = false
-	end)
+	MySQL.query.await(CharacterUpdateQuery('id = ? AND User = ?'), CharacterParams(data, cId, plyr:GetData('AccountID')))
+
+	_saving[source] = false
 end
 
 local _prevSaved = 0
 CreateThread(function()
-	while Fetch == nil or Database == nil do
+	while Fetch == nil do
 		Wait(1000)
 	end
 
@@ -83,3 +74,39 @@ CreateThread(function()
 		Wait(600000 / math.max(1, c))
 	end
 end)
+
+function CharacterUpdateQuery(where)
+	return string.format(
+		'UPDATE characters SET SID = ?, First = ?, Last = ?, Phone = ?, Deleted = ?, LastPlayed = ?, `character` = ? WHERE %s',
+		where
+	)
+end
+
+function CharacterParams(data, ...)
+	local params = {
+		data.SID,
+		data.First,
+		data.Last,
+		data.Phone,
+		data.Deleted and 1 or 0,
+		data.LastPlayed or -1,
+		json.encode(data),
+	}
+
+	for k, v in ipairs({ ... }) do
+		table.insert(params, v)
+	end
+
+	return params
+end
+
+function DecodeCharacter(row)
+	if row == nil then
+		return nil
+	end
+
+	local character = json.decode(row.character)
+	character._id = row.id
+
+	return character
+end

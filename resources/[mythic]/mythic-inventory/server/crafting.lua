@@ -255,12 +255,9 @@ CRAFTING = {
 		Add = function(self, bench, item)
 			if _types[bench] ~= nil and _schematics[item] ~= nil then
 				if not Crafting.Schematics:Has(bench, item) then
-					Database.Game:insertOne({
-						collection = "schematics",
-						document = {
-							bench = bench,
-							item = item,
-						},
+					MySQL.insert.await("INSERT INTO schematics (bench, item) VALUES(?, ?)", {
+						bench,
+						item,
 					})
 
 					local f = table.copy(_schematics[item])

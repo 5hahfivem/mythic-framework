@@ -134,46 +134,40 @@ function PlayerClass(identifier, player, deferrals)
 				table.insert(tkns, GetPlayerToken(self.Source, i))
 			end
 
-			local p = promise.new()
+			if #tkns == 0 then
+				return nil
+			end
 
-			Database.Auth:find({
-				collection = "bans",
-				query = {
-					tokens = {
-						["$in"] = tkns,
-					},
-					["$or"] = {
-						{
-							expires = -1,
-						},
-						{
-							expires = {
-								["$gt"] = (os.time() * 1000),
-							},
-						},
-					},
-					active = true,
-				},
-			}, function(success, res)
-				if not success then
-					p:resolve(true)
-					return
+			local conditions = {}
+			local params = { os.time() }
+			for k, v in ipairs(tkns) do
+				table.insert(conditions, "JSON_CONTAINS(tokens, JSON_QUOTE(?))")
+				table.insert(params, v)
+			end
+
+			local res = MySQL.query.await(
+				("SELECT * FROM bans WHERE active = 1 AND (expires = -1 OR expires > ?) AND (%s)"):format(
+					table.concat(conditions, " OR ")
+				),
+				params
+			)
+
+			if res == nil then
+				return true
+			end
+
+			if #res == 0 then
+				return nil
+			end
+
+			local ban = nil
+			for k, v in ipairs(res) do
+				if ban == nil or (ban.expires ~= -1 and v.expires == -1 or v.expires > ban.expires) then
+					ban = v
 				end
+			end
 
-				if #res == 0 then
-					p:resolve(nil)
-				else
-					local ban = nil
-					for k, v in ipairs(res) do
-						if ban == nil or (ban.expires ~= -1 and v.expires == -1 or v.expires > ban.expires) then
-							ban = v
-						end
-					end
-					p:resolve(ban)
-				end
-			end)
-
-			return Citizen.Await(p)
+			return ban
 		end,
 
 		IsInGracePeriod = function(self)
@@ -189,50 +183,40 @@ function PlayerClass(identifier, player, deferrals)
 end
 
 function FetchDatabaseUser(identifier, player)
-	local p = promise.new()
+	local user = MySQL.single.await("SELECT * FROM users WHERE identifier = ?", { identifier })
 
-	Database.Auth:findOne({
-		collection = "users",
-		query = {
-			identifier = identifier,
-		},
-		limit = 1,
-		options = {
-			projection = {
-				name = 1,
-				forum = 1,
-				account = 1,
-				identifier = 1,
-				verified = 1,
-				joined = 1,
-				groups = 1,
-				avatar = 1,
-				priority = 1,
-			},
-		},
-	}, function(success, results)
-		if success and #results > 0 and results[1].identifier and results[1].identifier == identifier then
-			p:resolve(results[1])
-		else
-			local doc = {
-				name = GetPlayerName(player),
-				account = Sequence:Get("Account"),
-				identifier = identifier,
-				verified = true,
-				joined = os.time() * 1000,
-				groups = {
-					"Whitelisted",
-				},
-				priority = 0,
-			}
-			Database.Auth:insertOne({
-				collection = "users",
-				document = doc
-			}, function()
-				p:resolve(doc)
-			end)
-		end
-	end)
+	if user ~= nil and user.identifier and user.identifier == identifier then
+		user._id = user.id
+		user.groups = json.decode(user.groups)
+		user.tokens = user.tokens and json.decode(user.tokens) or nil
 
-	return Citizen.Await(p)
+		return user
+	end
+
+	local doc = {
+		name = GetPlayerName(player),
+		account = Sequence:Get("Account"),
+		identifier = identifier,
+		verified = true,
+		joined = os.time() * 1000,
+		groups = {
+			"Whitelisted",
+		},
+		priority = 0,
+	}
+
+	doc._id = MySQL.insert.await(
+		"INSERT INTO users (name, account, identifier, verified, joined, `groups`, priority) VALUES(?, ?, ?, ?, ?, ?, ?)",
+		{
+			doc.name,
+			doc.account,
+			doc.identifier,
+			doc.verified,
+			doc.joined,
+			json.encode(doc.groups),
+			doc.priority,
+		}
+	)
+
+	return doc
 end

@@ -5,7 +5,6 @@ local _generatedNames = {}
 
 AddEventHandler("Police:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
-	Database = exports["mythic-base"]:FetchComponent("Database")
 	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
 	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
 	Logger = exports["mythic-base"]:FetchComponent("Logger")
@@ -27,7 +26,6 @@ end
 
 AddEventHandler("Core:Shared:Ready", function()
 	exports["mythic-base"]:RequestDependencies("Police", {
-		"Database",
 		"Middleware",
 		"Callbacks",
 		"Logger",
@@ -438,158 +436,154 @@ POLICE = {
 		return false
 	end,
 	RunPlate = function(self, source, plate, wasEntity)
-		Database.Game:find({
-			collection = "vehicles",
-			query = {
-				["$or"] = {
-					{
-						RegisteredPlate = plate,
-					},
-					{
-						FakePlate = plate,
-					}
-				},
-			},
-		}, function(success, results)
-			if not success or #results == 0 then
-				local stolen = Radar:CheckPlate(plate)
-				if stolen then
-					if not _generatedNames[plate] then
-						_generatedNames[plate] = string.format(
-							"%s %s",
-							Generator.Name:First(),
-							Generator.Name:Last()
-						)
-					end
+		local rows = MySQL.query.await(
+			"SELECT vehicle FROM vehicles WHERE RegisteredPlate = ? OR FakePlate = ?",
+			{ plate, plate }
+		)
 
-					if wasEntity then
-						Chat.Send.Services:Dispatch(
-							source,
-							string.format(
-								"<b>Owner</b>: %s<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown<br /><br />%s",
-								_generatedNames[plate],
-								wasEntity.VIN,
-								wasEntity.model,
-								plate,
-								stolen
-							)
-						)
-					else
-						Chat.Send.Services:Dispatch(
-							source,
-							string.format(
-								"<b>Owner</b>: %s<br /><b>VIN</b>: Unknown<br /><b>Make & Model</b>: Unknown<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown<br /><br />%s",
-								_generatedNames[plate],
-								plate,
-								stolen
-							)
-						)
-					end
-				elseif wasEntity then
-					if not _generatedNames[plate] then
-						_generatedNames[plate] = string.format(
-							"%s %s",
-							Generator.Name:First(),
-							Generator.Name:Last()
-						)
-					end
+		local results = {}
+		for k, v in ipairs(rows) do
+			table.insert(results, json.decode(v.vehicle))
+		end
 
+		if #results == 0 then
+			local stolen = Radar:CheckPlate(plate)
+			if stolen then
+				if not _generatedNames[plate] then
+					_generatedNames[plate] = string.format(
+						"%s %s",
+						Generator.Name:First(),
+						Generator.Name:Last()
+					)
+				end
+
+				if wasEntity then
 					Chat.Send.Services:Dispatch(
 						source,
 						string.format(
-							"<b>Owner</b>: %s<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown",
+							"<b>Owner</b>: %s<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown<br /><br />%s",
 							_generatedNames[plate],
 							wasEntity.VIN,
 							wasEntity.model,
-							plate
+							plate,
+							stolen
 						)
 					)
 				else
-					Chat.Send.Services:Dispatch(source, "No Plate Match")
+					Chat.Send.Services:Dispatch(
+						source,
+						string.format(
+							"<b>Owner</b>: %s<br /><b>VIN</b>: Unknown<br /><b>Make & Model</b>: Unknown<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown<br /><br />%s",
+							_generatedNames[plate],
+							plate,
+							stolen
+						)
+					)
 				end
-				return
-			end
+			elseif wasEntity then
+				if not _generatedNames[plate] then
+					_generatedNames[plate] = string.format(
+						"%s %s",
+						Generator.Name:First(),
+						Generator.Name:Last()
+					)
+				end
 
-			if #results > 1 then
-				Chat.Send.Services:Dispatch(source, "Multiple Matches, Please Use MDT")
+				Chat.Send.Services:Dispatch(
+					source,
+					string.format(
+						"<b>Owner</b>: %s<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown",
+						_generatedNames[plate],
+						wasEntity.VIN,
+						wasEntity.model,
+						plate
+					)
+				)
 			else
-				local vehicle = results[1]
-				if vehicle.FakePlate and vehicle.FakePlateData then
-					local stolen = Radar:CheckPlate(plate)
-					if stolen then
-						Chat.Send.Services:Dispatch(
-							source,
-							string.format(
-								"<b>Owner</b>: %s (%s)<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown<br /><br />%s",
-								vehicle.FakePlateData.OwnerName,
-								vehicle.FakePlateData.SID,
-								vehicle.FakePlateData.VIN,
-								vehicle.FakePlateData.Vehicle or string.format('%s %s', vehicle.Make, vehicle.Model),
-								vehicle.FakePlate,
-								stolen
-							)
+				Chat.Send.Services:Dispatch(source, "No Plate Match")
+			end
+			return
+		end
+
+		if #results > 1 then
+			Chat.Send.Services:Dispatch(source, "Multiple Matches, Please Use MDT")
+		else
+			local vehicle = results[1]
+			if vehicle.FakePlate and vehicle.FakePlateData then
+				local stolen = Radar:CheckPlate(plate)
+				if stolen then
+					Chat.Send.Services:Dispatch(
+						source,
+						string.format(
+							"<b>Owner</b>: %s (%s)<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown<br /><br />%s",
+							vehicle.FakePlateData.OwnerName,
+							vehicle.FakePlateData.SID,
+							vehicle.FakePlateData.VIN,
+							vehicle.FakePlateData.Vehicle or string.format('%s %s', vehicle.Make, vehicle.Model),
+							vehicle.FakePlate,
+							stolen
 						)
-					else
-						Chat.Send.Services:Dispatch(
-							source,
-							string.format(
-								"<b>Owner</b>: %s (%s)<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown",
-								vehicle.FakePlateData.OwnerName,
-								vehicle.FakePlateData.SID,
-								vehicle.FakePlateData.VIN,
-								vehicle.FakePlateData.Vehicle or string.format('%s %s', vehicle.Make, vehicle.Model),
-								vehicle.FakePlate
-							)
-						)
-					end
+					)
 				else
-					local owner = MDT.People:View(vehicle.Owner.Id)
-	
-					local stolen = false
-					if vehicle.Flags then
-						for k, v in ipairs(vehicle.Flags) do
-							if v.Type == "stolen" then
-								stolen = v.Description
-								break
-							end
+					Chat.Send.Services:Dispatch(
+						source,
+						string.format(
+							"<b>Owner</b>: %s (%s)<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s<br /><b>Plate</b>: %s<br /><b>Class</b>: Unknown",
+							vehicle.FakePlateData.OwnerName,
+							vehicle.FakePlateData.SID,
+							vehicle.FakePlateData.VIN,
+							vehicle.FakePlateData.Vehicle or string.format('%s %s', vehicle.Make, vehicle.Model),
+							vehicle.FakePlate
+						)
+					)
+				end
+			else
+				local owner = MDT.People:View(vehicle.Owner.Id)
+
+				local stolen = false
+				if vehicle.Flags then
+					for k, v in ipairs(vehicle.Flags) do
+						if v.Type == "stolen" then
+							stolen = v.Description
+							break
 						end
 					end
-	
-					if stolen then
-						Chat.Send.Services:Dispatch(
-							source,
-							string.format(
-								"<b>Owner</b>: %s %s (%s)<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s %s<br /><b>Plate</b>: %s<br /><b>Class</b>: %s<br /><br /><b>Vehicle Reported Stolen</b>: %s",
-								owner.First,
-								owner.Last,
-								vehicle.Owner.Id,
-								vehicle.VIN,
-								vehicle.Make,
-								vehicle.Model,
-								vehicle.RegisteredPlate,
-								vehicle.Class,
-								stolen
-							)
+				end
+
+				if stolen then
+					Chat.Send.Services:Dispatch(
+						source,
+						string.format(
+							"<b>Owner</b>: %s %s (%s)<br /><b>VIN</b>: %s<br /><b>Make & Model</b>: %s %s<br /><b>Plate</b>: %s<br /><b>Class</b>: %s<br /><br /><b>Vehicle Reported Stolen</b>: %s",
+							owner.First,
+							owner.Last,
+							vehicle.Owner.Id,
+							vehicle.VIN,
+							vehicle.Make,
+							vehicle.Model,
+							vehicle.RegisteredPlate,
+							vehicle.Class,
+							stolen
 						)
-					else
-						Chat.Send.Services:Dispatch(
-							source,
-							string.format(
-								"Owner: %s %s (%s)\nVIN: %s\nMake & Model: %s %s\nPlate: %s\nClass: %s",
-								owner.First,
-								owner.Last,
-								vehicle.Owner.Id,
-								vehicle.VIN,
-								vehicle.Make,
-								vehicle.Model,
-								vehicle.RegisteredPlate,
-								vehicle.Class
-							)
+					)
+				else
+					Chat.Send.Services:Dispatch(
+						source,
+						string.format(
+							"Owner: %s %s (%s)\nVIN: %s\nMake & Model: %s %s\nPlate: %s\nClass: %s",
+							owner.First,
+							owner.Last,
+							vehicle.Owner.Id,
+							vehicle.VIN,
+							vehicle.Make,
+							vehicle.Model,
+							vehicle.RegisteredPlate,
+							vehicle.Class
 						)
-					end
+					)
 				end
 			end
-		end)
+		end
 	end,
 }
 
