@@ -1,0 +1,39 @@
+sv_licenseKey setme
+set steam_webApiKey "setme"
+set rcon_password ""
+
+set sv_environment dev # dev/prod
+set sv_access_role 0
+setr log_level 1
+
+sv_master1 ""
+sv_maxclients 8
+
+sv_hostname "Mythic RP - Development"
+sets sv_projectName "Mythic RP - Development"
+sets sv_projectDesc "Mythic RP"
+sets tags "rp"
+sets motd "Welcome to Mythic Framework!"
+
+# Database - the schema in mythic.sql expects a database named mythicrp
+set mysql_connection_string "mysql://root@localhost/mythicrp?charset=utf8mb4"
+set mysql_slow_query_warning 300
+set mysql_resultset_warning 20000
+set mysql_transaction_isolation_level 2
+set mysql_log_size 100
+set mysql_debug false
+set mysql_ui true
+
+set api_address "https://mythicrp.com/api/mythic/"
+set api_token "setme"
+set discord_bot_token ""
+
+set discord_admin_webhook ""
+set discord_connection_webhook ""
+set discord_log_webhook ""
+set discord_kill_webhook ""
+set discord_pwnzor_webhook ""
+set discord_error_webhook ""
+
+setr voice_externalAddress "false"
+setr voice_externalPort 0
