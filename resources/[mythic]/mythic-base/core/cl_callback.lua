@@ -66,7 +66,7 @@ COMPONENTS.Callbacks = {
             end)
 
             if not success then
-                COMPONENTS.Logger:Error('Callbacks', string.format("Client Callback ^2%s^7 Failed: %s\n%s", event, err, stackTrace()), { console = true })
+                COMPONENTS.Logger:Error('Callbacks', string.format("Client Callback ^2%s^7 Failed: %s\n%s", event, tostring(err), stackTrace()), { console = true })
                 TriggerServerEvent('Callbacks:Server:ReceiveCallback', event, id)
             end
         end)
