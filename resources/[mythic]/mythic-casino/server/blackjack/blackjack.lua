@@ -284,6 +284,7 @@ function StartBlackjackGame(tableId)
                 local sentDealerBust = false
                 local sentEveryoneBust = true
                 local cleaningChairs = {}
+                local dealerBlackjack = IsBlackjackNatural(_blackjack[tableId].DealerCards, dealerHand)
 
                 for k,v in pairs(_blackjack[tableId].Seats) do
                     if v and v.Source and v.Joined then
@@ -292,10 +293,25 @@ function StartBlackjackGame(tableId)
                             local isWin = false
                             local isPush = false
                             local isDealerBust = false
+                            local isNatural = IsBlackjackNatural(v.Cards, pHand)
 
                             if pHand <= 21 then
 
-                                if dealerHand > 21 then
+                                if isNatural or dealerBlackjack then
+                                    -- A natural beats any drawn 21 and only ever
+                                    -- pushes against the dealer holding one too
+                                    if isNatural and dealerBlackjack then
+                                        isWin = true
+                                        isPush = true
+                                    elseif isNatural then
+                                        isWin = true
+
+                                        UpdateCharacterCasinoStats(v.Source, "blackjack", true, math.floor(v.Bet * 1.5))
+                                    else
+                                        UpdateCharacterCasinoStats(v.Source, "blackjack", false, v.Bet)
+                                        GiveCasinoFuckingMoney(v.Source, "Blackjack", v.Bet)
+                                    end
+                                elseif dealerHand > 21 then
                                     isWin = true
                                     -- Win, Dealer Bust
                                     if not sentDealerBust then
@@ -323,7 +339,10 @@ function StartBlackjackGame(tableId)
                                 sentEveryoneBust = false
 
                                 local wonAmount = v.Bet
-                                if not isPush then
+                                if isNatural and not isPush then
+                                    -- Naturals pay 3:2 on top of the stake
+                                    wonAmount = math.floor(v.Bet * 2.5)
+                                elseif not isPush then
                                     wonAmount = v.Bet * 2
                                 end
 
@@ -603,6 +622,10 @@ function GetBlackjackTableReady(tableId)
     end
 
     return readyCount >= 4
+end
+
+function IsBlackjackNatural(cards, hand)
+    return cards ~= nil and #cards == 2 and hand == 21
 end
 
 function IsValidBlackjackBet(tableId, bet)
