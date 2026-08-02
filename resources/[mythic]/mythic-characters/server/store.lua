@@ -11,6 +11,13 @@ function StoreData(source)
 	local char = plyr:GetData('Character')
 	local data = char:GetData()
 	local cId = data.ID
+	local sid = data.SID
+	local first = data.First
+	local last = data.Last
+	local phone = data.Phone
+	local deleted = data.Deleted
+	local lastPlayed = data.LastPlayed
+
 	for k, v in ipairs(_noUpdate) do
 		data[v] = nil
 	end
@@ -34,7 +41,7 @@ function StoreData(source)
 	data.LastPlayed = os.time() * 1000
 
 	Logger:Trace('Characters', string.format('Saving Character %s', cId), { console = true })
-	MySQL.query.await(CharacterUpdateQuery('id = ? AND User = ?'), CharacterParams(data, cId, plyr:GetData('AccountID')))
+	MySQL.query.await(CharacterUpdateQuery('id = ? AND User = ?'), CharacterParams(data, sid, first, last, phone, deleted, lastPlayed, cId, plyr:GetData('AccountID')))
 
 	_saving[source] = false
 end
