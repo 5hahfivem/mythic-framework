@@ -11,16 +11,13 @@
 ## https://discord.gg/qFeUfUCCbW
 
 ## Official Discord
-- [Discord Link](https://discord.gg/N2JARAe8Rp) - Offical Discord for Mythic Framework community-driven support forum!
-
-## Get Started
-- [mythic-framework](https://github.com/Mythic-Framework/mythic-framework) - Get started with the official repository!
+- [Discord Link](https://discord.gg/bPC3Rtcsum) - Offical Discord for Mythic Framework community-driven support forum!
 
 ## Project Maintainers
-- Treyyyy - Community Owner
-- Tyh - Community Owner
-- Van Man (DrBooly) - Community Owner
-- akaLucifer - Maintainer
+- Return - Owner
+- Nolix - Lead Developer
+- NexOffline - Leader Developer
+- Leo - Community Moderator
 
 ## Credits
 - Alzar & Dr Nick - Original Maintainers and Creators
