@@ -491,3 +491,6 @@ created_doors_data.txt
 
 start.bat
 resources/mythic-pwnzor2/onlineTime.json
+
+# macOS
+.DS_Store
