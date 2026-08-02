@@ -11,12 +11,6 @@ function StoreData(source)
 	local char = plyr:GetData('Character')
 	local data = char:GetData()
 	local cId = data.ID
-	local sid = data.SID
-	local first = data.First
-	local last = data.Last
-	local phone = data.Phone
-	local deleted = data.Deleted
-	local lastPlayed = data.LastPlayed
 
 	for k, v in ipairs(_noUpdate) do
 		data[v] = nil
@@ -41,7 +35,20 @@ function StoreData(source)
 	data.LastPlayed = os.time() * 1000
 
 	Logger:Trace('Characters', string.format('Saving Character %s', cId), { console = true })
-	MySQL.query.await(CharacterUpdateQuery('id = ? AND User = ?'), CharacterParams(data, sid, first, last, phone, deleted, lastPlayed, cId, plyr:GetData('AccountID')))
+
+	local stored = MySQL.single.await('SELECT `character` FROM characters WHERE id = ? AND User = ?', {
+		cId,
+		plyr:GetData('AccountID'),
+	})
+
+	-- Only the keys we're saving get overwritten, everything else on the stored
+	-- character is left alone (_noUpdate fields never make it into `data`)
+	local character = stored and json.decode(stored.character) or {}
+	for k, v in pairs(data) do
+		character[k] = v
+	end
+
+	MySQL.query.await(CharacterUpdateQuery('id = ? AND User = ?'), CharacterParams(character, cId, plyr:GetData('AccountID')))
 
 	_saving[source] = false
 end
@@ -89,15 +96,15 @@ function CharacterUpdateQuery(where)
 	)
 end
 
-function CharacterParams(data, ...)
+function CharacterParams(character, ...)
 	local params = {
-		data.SID,
-		data.First,
-		data.Last,
-		data.Phone,
-		data.Deleted and 1 or 0,
-		data.LastPlayed or -1,
-		json.encode(data),
+		character.SID or 0,
+		character.First or '',
+		character.Last or '',
+		character.Phone or '',
+		character.Deleted and 1 or 0,
+		character.LastPlayed or -1,
+		json.encode(character),
 	}
 
 	for k, v in ipairs({ ... }) do
