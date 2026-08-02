@@ -40,7 +40,7 @@ function RegisterCallbacks()
 
 		local cData = {}
 		for k, v in ipairs(results) do
-			local pedData = MySQL.single.await('SELECT Ped FROM peds WHERE Char = ?', { v._id })
+			local pedData = MySQL.single.await('SELECT Ped FROM peds WHERE `Char` = ?', { v._id })
 
 			table.insert(cData, {
 				ID = v._id,

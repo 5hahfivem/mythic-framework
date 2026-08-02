@@ -52,9 +52,14 @@ local function doLog(level, component, log, flags, data)
 		if flags.file then
 			local currDate = os.date("%Y-%m-%d")
 			local timestamp = os.date("%I:%M:%S %p")
-			os.execute("mkdir logs")
-			os.execute(('mkdir "logs/%s"'):format(component))
-			local logFile, errorReason = io.open(("logs/%s/%s.log"):format(component, currDate), "a")
+			local logDir = ("logs/%s"):format(component)
+			if package.config:sub(1, 1) == "\\" then
+				os.execute(("mkdir \"%s\""):format("logs"))
+				os.execute(("mkdir \"%s\""):format(logDir:gsub("/", "\\\\")))
+			else
+				os.execute(("mkdir -p \"%s\""):format(logDir))
+			end
+			local logFile, errorReason = io.open(("%s/%s.log"):format(logDir, currDate), "a")
 			if not logFile then
 				return print(errorReason)
 			end

@@ -406,7 +406,7 @@ PED = {
 		end
 
 		local success = MySQL.query.await(
-			"INSERT INTO peds (Char, Ped) VALUES(?, ?) ON DUPLICATE KEY UPDATE Ped = VALUES(Ped)",
+			"INSERT INTO peds (`Char`, Ped) VALUES(?, ?) ON DUPLICATE KEY UPDATE Ped = VALUES(Ped)",
 			{
 				char:GetData("ID"),
 				json.encode(ped),
@@ -764,7 +764,7 @@ function RegisterCallbacks()
 	Callbacks:RegisterServerCallback("Ped:CheckPed", function(source, data, cb)
 		local player = exports["mythic-base"]:FetchComponent("Fetch"):Source(source)
 		local char = player:GetData("Character")
-		local result = MySQL.single.await("SELECT Ped FROM peds WHERE Char = ?", { char:GetData("ID") })
+		local result = MySQL.single.await("SELECT Ped FROM peds WHERE `Char` = ?", { char:GetData("ID") })
 
 		if result == nil then
 			local tmp = deepcopy(TemplateData)
