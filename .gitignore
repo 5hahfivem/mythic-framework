@@ -494,3 +494,9 @@ resources/mythic-pwnzor2/onlineTime.json
 
 # macOS
 .DS_Store
+
+# luacheck (bun install in tools/luacheck); the lockfile is tracked so the
+# checker installs the same way everywhere, despite the blanket *.lock above
+tools/luacheck/node_modules/
+!tools/luacheck/bun.lock
+
