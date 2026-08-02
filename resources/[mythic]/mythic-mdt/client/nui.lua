@@ -129,3 +129,13 @@ end)
 RegisterNUICallback("ClearRecord", function(data, cb)
 	Callbacks:ServerCallback("MDT:ClearCriminalRecord", data, cb)
 end)
+
+RegisterNUICallback("MarkProperty", function(data, cb)
+	if data and data.x and data.y then
+		ClearGpsPlayerWaypoint()
+		SetNewWaypoint(data.x + 0.0, data.y + 0.0)
+		cb(true)
+	else
+		cb(false)
+	end
+end)

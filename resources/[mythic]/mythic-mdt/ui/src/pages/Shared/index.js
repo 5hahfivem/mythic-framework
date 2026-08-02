@@ -8,6 +8,7 @@ import ViewVehicle from './View/Vehicle';
 import ViewFirearm from './View/Firearm';
 import ViewReport from './View/Report';
 import ViewWarrant from './View/Warrant';
+import ViewProperty from './View/Property';
 
 import SearchPeople from './Search/People';
 import SearchVehicle from './Search/Vehicle'
@@ -31,6 +32,7 @@ export {
 	ViewFirearm,
 	ViewReport,
 	ViewWarrant,
+	ViewProperty,
 
     SearchPeople,
 	SearchVehicle,

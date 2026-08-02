@@ -16,6 +16,7 @@ import {
 	ViewFirearm,
 	ViewReport,
 	ViewWarrant,
+	ViewProperty,
 	SearchPeople,
 	SearchVehicle,
 	SearchProperty,
@@ -98,6 +99,7 @@ export default () => {
 									<Route exact path="/create/bolo" element={<CreateBOLO />} />
 									<Route exact path="/search/people/:id" element={<ViewPerson />} />
 									<Route exact path="/search/vehicles/:id" element={<ViewVehicle />} />
+									<Route exact path="/search/properties/:id" element={<ViewProperty />} />
 									<Route exact path="/search/firearms/:id" element={<ViewFirearm />} />
 									<Route exact path="/search/reports/:id" element={<ViewReport />} />
 									<Route exact path="/warrants/:id" element={<ViewWarrant />} />

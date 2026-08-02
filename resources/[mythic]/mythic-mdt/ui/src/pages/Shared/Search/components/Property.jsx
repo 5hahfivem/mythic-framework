@@ -24,10 +24,16 @@ export default ({ property }) => {
 	const classes = useStyles();
 	const history = useNavigate();
 
-	const onGPSMark = async () => {
+	const onClick = () => {
+		history(`/search/properties/${property.id}`);
+	};
+
+	const onGPSMark = async (e) => {
+		e.stopPropagation();
+
 		try {
             let res = await (
-                await Nui.send('Dyn8MarkProperty', property._id)
+                await Nui.send('MarkProperty', property.location?.front)
             ).json();
 
             if (res) {
@@ -42,7 +48,7 @@ export default ({ property }) => {
 	};
 
 	return (
-		<ListItem className={classes.wrapper} button>
+		<ListItem className={classes.wrapper} button onClick={onClick}>
 			<Grid container>
 				<Grid item xs={6}>
 					<ListItemText
