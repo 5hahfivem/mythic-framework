@@ -600,8 +600,47 @@ _JOBS = {
 			return false
 		end,
 		Transfer = function(self, jobId, newOwner)
-			-- TODO
-			--Middleware:TriggerEvent("Business:Transfer", jobId, source:GetData("SID"), target:GetData("SID"))
+			local job = FetchJob(jobId)
+			if not job or job.Type ~= 'Company' then
+				return false
+			end
+
+			local previousOwner = job.Owner
+			if previousOwner == newOwner then
+				return false
+			end
+
+			job.Owner = newOwner
+
+			if not StoreJob(job) then
+				return false
+			end
+
+			RefreshAllJobData(jobId)
+
+			-- The new owner takes the owner grade, the previous owner is left employed
+			-- at the lowest grade rather than being dropped from the company
+			Jobs:GiveJob(newOwner, jobId, false, 'owner')
+
+			if previousOwner then
+				local grades = GetJobGrades(job, false)
+				local lowest = nil
+				for k, v in ipairs(grades or {}) do
+					if v.Id ~= 'owner' and (lowest == nil or (v.Level or 0) < (lowest.Level or 0)) then
+						lowest = v
+					end
+				end
+
+				if lowest then
+					Jobs:GiveJob(previousOwner, jobId, false, lowest.Id)
+				else
+					Jobs:RemoveJob(previousOwner, jobId)
+				end
+			end
+
+			Middleware:TriggerEvent('Business:Transfer', jobId, previousOwner, newOwner)
+
+			return true
 		end,
 		Upgrades = {
 			-- TODO

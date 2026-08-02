@@ -216,6 +216,7 @@ end)
 AddEventHandler("MDT:Server:RegisterCallbacks", function()
 	Callbacks:RegisterServerCallback("MDT:Admin:SetMaxReduction", function(source, data, cb)
 		--TODO: Set max reduction and dispatch to all clients
+		cb(false)
 	end)
 
 	Callbacks:RegisterServerCallback("MDT:SentencePlayer", function(source, data, cb)
