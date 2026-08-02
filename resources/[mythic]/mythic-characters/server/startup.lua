@@ -7,7 +7,6 @@ function Startup()
 		return
 	end
 
-		if not success then
 	local results = MySQL.query.await('SELECT * FROM locations WHERE Type = ?', { 'spawn' })
 
 	Logger:Trace('Characters', 'Loaded ^2' .. #results .. '^7 Spawn Locations', { console = true })
