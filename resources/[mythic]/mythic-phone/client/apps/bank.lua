@@ -15,7 +15,7 @@ RegisterNUICallback("Banking:Transfer", function(data, cb)
 	Callbacks:ServerCallback('Banking:DoAccountAction', data, function(success)
 		if success then
 			Callbacks:ServerCallback('Banking:GetAccounts', {}, function(accounts, transactions, pendingBills)
-				Phone.Data:Set('bankLoans', {
+				Phone.Data:Set('bankAccounts', {
 					accounts = accounts,
 					transactions = transactions,
 					pendingBills = pendingBills or {},

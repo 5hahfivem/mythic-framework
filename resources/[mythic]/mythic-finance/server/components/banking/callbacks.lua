@@ -80,44 +80,31 @@ function RegisterBankingCallbacks()
 		if char then
 			local SID = char:GetData("SID")
 
-			local jobQueryList = {}
-			local workplaceQueryList = { false }
-			local charJobs = char:GetData("Jobs") or {}
-
-			for k, v in ipairs(charJobs) do
-				table.insert(jobQueryList, v.Id)
-
-				if v.Workplace then
-					table.insert(workplaceQueryList, v.Workplace.Id)
-				end
-			end
-
 			local availableAccountsData = {}
 			local accountTransactionData = {}
 			local availableAccountTransactions = {}
-			local availableAccounts = FindBankAccounts({
+			local availableAccounts = {}
+			local seenAccounts = {}
+
+			local function addAccounts(accounts)
+				for _, account in ipairs(accounts or {}) do
+					if not seenAccounts[account.Account] then
+						seenAccounts[account.Account] = true
+						table.insert(availableAccounts, account)
+					end
+				end
+			end
+
+			-- JobAccess and JointOwners are stored in the JSON data column. Fetch
+			-- each supported account group separately, then apply job permissions
+			-- below instead of treating JobAccess as a SQL column.
+			addAccounts(FindBankAccounts({ Owner = SID }))
+			addAccounts(FindBankAccounts({
 				["$or"] = {
-					{
-						Owner = SID,
-					},
-					{
-						JointOwners = SID,
-					},
-					{
-						Type = "organization",
-						JobAccess = {
-							["$elemMatch"] = {
-								Job = {
-									["$in"] = jobQueryList,
-								},
-								Workplace = {
-									["$in"] = workplaceQueryList,
-								},
-							},
-						},
-					},
+					{ JointOwners = SID },
 				},
-			})
+			}))
+			addAccounts(FindBankAccounts({ Type = "organization" }))
 
 			for _, account in ipairs(availableAccounts) do
 				if account.Type == "personal" then
