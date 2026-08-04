@@ -38,7 +38,7 @@ function BuildAccountQuery(query)
             for k2, condition in ipairs(v) do
                 for k3, val in pairs(condition) do
                     if k3 == 'JointOwners' then
-                        table.insert(ors, "JSON_CONTAINS(JSON_EXTRACT(`data`, '$.JointOwners'), CAST(? AS JSON))")
+                        table.insert(ors, "JSON_CONTAINS(`data`, JSON_EXTRACT(?, '$'), '$.JointOwners')")
                         table.insert(params, json.encode(val))
                     else
                         table.insert(ors, string.format('`%s` = ?', k3))
@@ -134,11 +134,11 @@ function UpdateBankAccount(searchQuery, updateQuery)
                 table.insert(clauses, string.format('`%s` = ?', k))
                 table.insert(setParams, v)
             elseif op == '$set' then
-                table.insert(clauses, "`data` = JSON_SET(`data`, ?, CAST(? AS JSON))")
+                table.insert(clauses, "`data` = JSON_SET(`data`, ?, JSON_EXTRACT(?, '$'))")
                 table.insert(setParams, string.format('$."%s"', k))
                 table.insert(setParams, json.encode(v))
             elseif op == '$push' then
-                table.insert(clauses, "`data` = JSON_ARRAY_APPEND(COALESCE(`data`, '{}'), ?, CAST(? AS JSON))")
+                table.insert(clauses, "`data` = JSON_ARRAY_APPEND(COALESCE(`data`, '{}'), ?, JSON_EXTRACT(?, '$'))")
                 table.insert(setParams, string.format('$."%s"', k))
                 table.insert(setParams, json.encode(v))
             end
